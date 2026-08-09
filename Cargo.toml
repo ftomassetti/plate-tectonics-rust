@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = ["platec", "platec-wasm"]
+
+[profile.release]
+opt-level = 3
+
+[profile.test]
+opt-level = 0

@@ -1,0 +1,11 @@
+[package]
+name = "platec"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-2.1-or-later"
+description = "Plate tectonics simulation, ported from the C++ plate-tectonics library"
+
+[dependencies]
+
+[features]
+strict_asserts = []
