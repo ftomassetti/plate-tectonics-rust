@@ -30,6 +30,32 @@ const NO_COLLISION_TIME_LIMIT: u32 = 10;
 /// The C++ `#define BOOL_REGENERATE_CRUST 1`.
 const BOOL_REGENERATE_CRUST: u32 = 1;
 
+/// Relative spread of the height jitter applied to freshly regenerated sea
+/// floor. The buoyancy bonus steps by `BUOYANCY_BONUS_X * OCEANIC_BASE /
+/// MAX_BUOYANCY_AGE` = 0.015 per age unit on a base of 0.3, so +/-10% is a
+/// couple of band widths — enough to dither the iso-age edges away while
+/// leaving the overall age-versus-depth gradient intact.
+#[cfg(not(feature = "classic_cpp"))]
+const REGEN_CRUST_NOISE: f32 = 0.10;
+
+/// Deterministic per-cell jitter in [-1, 1).
+///
+/// Hashed from the location and the iteration rather than drawn from
+/// `randsource`, so that adding it does not disturb the random draw order the
+/// rest of the port depends on.
+#[cfg(not(feature = "classic_cpp"))]
+fn cell_jitter(x: u32, y: u32, t: u32) -> f32 {
+    let mut h = x
+        .wrapping_mul(0x9E37_79B1)
+        ^ y.wrapping_mul(0x85EB_CA77)
+        ^ t.wrapping_mul(0xC2B2_AE3D);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2545_F491);
+    h ^= h >> 13;
+    // Top 24 bits -> [0, 1) -> [-1, 1).
+    ((h >> 8) as f32 / (1u32 << 24) as f32) * 2.0 - 1.0
+}
+
 /// Errors the C++ signals by throwing `std::runtime_error`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlatecError {
@@ -894,7 +920,22 @@ impl Lithosphere {
                     // buoyant than that which has had a lot of time to cool
                     // down and become more dense.
                     self.amap[i] = self.iter_count;
-                    self.hmap[i] = OCEANIC_BASE * BUOYANCY_BONUS_X;
+
+                    // Every cell uncovered in one iteration shares an age, and
+                    // the buoyancy pass below turns age into height with no
+                    // noise at all — so each iteration's wake came out as a
+                    // hard-edged iso-height band trailing the plate. Jitter the
+                    // starting height to dither those edges away.
+                    #[cfg(not(feature = "classic_cpp"))]
+                    {
+                        self.hmap[i] = OCEANIC_BASE
+                            * BUOYANCY_BONUS_X
+                            * (1.0 + REGEN_CRUST_NOISE * cell_jitter(x, y, self.iter_count));
+                    }
+                    #[cfg(feature = "classic_cpp")]
+                    {
+                        self.hmap[i] = OCEANIC_BASE * BUOYANCY_BONUS_X;
+                    }
 
                     // This should probably not happen.
                     if self.imap[i] < self.num_plates {
