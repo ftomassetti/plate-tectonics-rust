@@ -39,17 +39,13 @@ pub fn create_slow_noise(map: &mut [f32], tmp_dim: &WorldDimension, mut randsour
             // The offsets define a circle each; a full circle is two pi radians,
             // and one full circle across the axis is what makes the result tile.
             //
-            // The C++ sweeps y over *four* pi, i.e. two full circles, so the
-            // noise it produces has period height/2 and the bottom half of every
-            // world is a copy of the top half. `classic_cpp` keeps that.
+            // The C++ sweeps y over *four* pi, i.e. two full circles, so its
+            // noise has period height/2 and the bottom half of every world comes
+            // out a near-copy of the top half. One sweep per axis here.
             let f_nx = x as f32 / width as f32;
             let f_ny = y as f32 / height as f32;
             let f_rdx = f_nx * 2.0 * PI;
-            let f_rdy = if cfg!(feature = "classic_cpp") {
-                f_ny * 4.0 * PI
-            } else {
-                f_ny * 2.0 * PI
-            };
+            let f_rdy = f_ny * 2.0 * PI;
             let f_rds_sin = 1.0f32;
             let a = f_rds_sin * f_rdx.sin();
             let b = f_rds_sin * f_rdx.cos();

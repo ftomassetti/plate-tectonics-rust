@@ -1,9 +1,11 @@
-//! Port of `test/test_regression.cpp`.
+//! Grown out of `test/test_regression.cpp`.
 //!
 //! Statistical comparison of heightmap data, to detect meaningful changes while
-//! tolerating minor floating-point differences across platforms. The baselines
-//! are inline in the C++ source and copied verbatim here; the PNG artifact
-//! writing of the original is not ported.
+//! tolerating minor floating-point differences across platforms. The structure
+//! is the C++ test's, but the baselines are our own: the simulation has since
+//! diverged from the C++ deliberately (see "Divergences from the C++" in the
+//! README), so this guards *our* output against unintended change rather than
+//! checking fidelity to the original.
 //!
 //! This runs a full 600×400 simulation to completion, so it is slow in a debug
 //! build — run it with `cargo test --release`.
@@ -17,11 +19,6 @@
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 #![allow(clippy::neg_multiply)]
 #![allow(clippy::should_implement_trait)]
-// Only meaningful against the bit-exact C++ behaviour: the default build
-// deliberately diverges from it (see the `classic_cpp` feature), so the whole
-// file compiles away unless that feature is on. Run it with
-// `cargo test --release --features platec/classic_cpp`.
-#![cfg(feature = "classic_cpp")]
 
 use platec::api::Simulation;
 
@@ -127,40 +124,32 @@ fn regression_simulation_seed12345_output_consistency() {
     let central_tolerance = 0.01f32; // 1% for mean, median, std_dev, quantiles
     let extrema_tolerance = 0.15f32; // 15% for min/max
 
-    // Expected statistical properties from baseline runs with seed 12345. The
-    // initial state is identical across platforms (generated before the
-    // simulation runs).
+    // Baselines recorded from this implementation at seed 12345. The initial
+    // state is thresholded to a pair of constants and the sea-level search
+    // pins the land fraction, so these aggregates are stable across platforms
+    // even though the terrain itself is not.
     let expected_initial = HeightmapStats {
         min: 0.1,
         max: 2.0,
-        mean: 0.689232,
+        mean: 0.68927217,
         median: 0.1,
-        std_dev: 0.779593,
+        std_dev: 0.7796046,
         q25: 0.1,
-        q75: 1.63843,
+        q75: 1.6384683,
     };
 
-    // The final state differs across architectures due to floating-point
-    // accumulation. Baseline: macOS ARM64 (Apple Clang, NEON).
-    let expected_final_arm64 = HeightmapStats {
-        min: 0.0390768,
-        max: 12.8598,
-        mean: 0.624101,
-        median: 0.114091,
-        std_dev: 0.930413,
-        q25: 0.0982555,
-        q75: 0.958133,
-    };
-
-    // Baseline: Windows/Ubuntu x86-64 (MSVC/GCC, AVX2/SSE).
-    let expected_final_x86 = HeightmapStats {
-        min: 0.0423916,
-        max: 17.8405,
-        mean: 0.62406,
-        median: 0.114578,
-        std_dev: 0.945673,
-        q25: 0.0983445,
-        q75: 0.924061,
+    // The final state accumulates floating-point error, so it can drift between
+    // architectures; this was recorded on macOS ARM64. If it ever fails on
+    // another target by a small margin, add that target's baseline alongside
+    // rather than loosening the tolerances.
+    let expected_final = HeightmapStats {
+        min: 0.0057563824,
+        max: 12.43835,
+        mean: 0.6242789,
+        median: 0.11561622,
+        std_dev: 0.92349637,
+        q25: 0.09839977,
+        q75: 1.1436903,
     };
 
     let initial_matches = stats_match(
@@ -169,32 +158,15 @@ fn regression_simulation_seed12345_output_consistency() {
         central_tolerance,
         extrema_tolerance,
     );
-    let final_matches_arm64 = stats_match(
+    let final_matches = stats_match(
         &final_stats,
-        &expected_final_arm64,
+        &expected_final,
         central_tolerance,
         extrema_tolerance,
     );
-    let final_matches_x86 = stats_match(
-        &final_stats,
-        &expected_final_x86,
-        central_tolerance,
-        extrema_tolerance,
-    );
-    let final_matches = final_matches_arm64 || final_matches_x86;
 
     println!("=== Initial heightmap statistics ===\n{initial_stats:#?}");
     println!("=== Final heightmap statistics ===\n{final_stats:#?}");
-    println!(
-        "matched baseline: {}",
-        if final_matches_arm64 {
-            "ARM64"
-        } else if final_matches_x86 {
-            "x86-64"
-        } else {
-            "none"
-        }
-    );
 
     assert!(
         initial_matches,
@@ -203,7 +175,7 @@ fn regression_simulation_seed12345_output_consistency() {
     );
     assert!(
         final_matches,
-        "Final heightmap statistics differ significantly from both baselines.\n\
-         actual: {final_stats:#?}\nARM64: {expected_final_arm64:#?}\nx86: {expected_final_x86:#?}"
+        "Final heightmap statistics differ significantly from the baseline.\n\
+         actual: {final_stats:#?}\nexpected: {expected_final:#?}"
     );
 }

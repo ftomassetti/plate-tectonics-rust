@@ -35,7 +35,6 @@ const BOOL_REGENERATE_CRUST: u32 = 1;
 /// MAX_BUOYANCY_AGE` = 0.015 per age unit on a base of 0.3, so +/-10% is a
 /// couple of band widths — enough to dither the iso-age edges away while
 /// leaving the overall age-versus-depth gradient intact.
-#[cfg(not(feature = "classic_cpp"))]
 const REGEN_CRUST_NOISE: f32 = 0.10;
 
 /// Height difference below which two overlapping plates count as equally
@@ -44,15 +43,13 @@ const REGEN_CRUST_NOISE: f32 = 0.10;
 /// broad overlap the winner was effectively picked by crust-age noise. This is
 /// sized to the regenerated-crust jitter above, the dominant source of that
 /// noise.
-#[cfg(not(feature = "classic_cpp"))]
 const BUOYANCY_TIE: f32 = REGEN_CRUST_NOISE * OCEANIC_BASE * BUOYANCY_BONUS_X;
 
 /// Deterministic per-cell jitter in [-1, 1).
 ///
 /// Hashed from the location and the iteration rather than drawn from
 /// `randsource`, so that adding it does not disturb the random draw order the
-/// rest of the port depends on.
-#[cfg(not(feature = "classic_cpp"))]
+/// rest of the port inherited from the C++.
 fn cell_jitter(x: u32, y: u32, t: u32) -> f32 {
     let mut h = x
         .wrapping_mul(0x9E37_79B1)
@@ -705,19 +702,12 @@ impl Lithosphere {
         let prev_timestamp = self.plates[owner as usize].get_crust_timestamp(x_mod, y_mod);
         let this_timestamp = self.plates[iu].get_map().1[j];
 
-        #[cfg(feature = "classic_cpp")]
-        let prev_is_buoyant = (self.hmap[k] > this_map_j)
-            || ((self.hmap[k] + 2.0 * f32::EPSILON > this_map_j)
-                && (self.hmap[k] < 2.0 * f32::EPSILON + this_map_j)
-                && (prev_timestamp >= this_timestamp));
-
         // Where two plates overlap with near-equal height, the C++ decides who
         // subducts by crust age. Age varies from cell to cell across an overlap,
         // so the winner alternates and the plate map comes out shredded into
         // thin interleaved slivers of both plates. Decide by continuity instead:
         // within the tie band, whoever held the cell last iteration keeps it, so
         // an overlap resolves as one coherent region with a stable boundary.
-        #[cfg(not(feature = "classic_cpp"))]
         let prev_is_buoyant = if (self.hmap[k] - this_map_j).abs() <= BUOYANCY_TIE {
             if self.prev_imap[k] == owner {
                 true
@@ -956,16 +946,9 @@ impl Lithosphere {
                     // noise at all — so each iteration's wake came out as a
                     // hard-edged iso-height band trailing the plate. Jitter the
                     // starting height to dither those edges away.
-                    #[cfg(not(feature = "classic_cpp"))]
-                    {
-                        self.hmap[i] = OCEANIC_BASE
-                            * BUOYANCY_BONUS_X
-                            * (1.0 + REGEN_CRUST_NOISE * cell_jitter(x, y, self.iter_count));
-                    }
-                    #[cfg(feature = "classic_cpp")]
-                    {
-                        self.hmap[i] = OCEANIC_BASE * BUOYANCY_BONUS_X;
-                    }
+                    self.hmap[i] = OCEANIC_BASE
+                        * BUOYANCY_BONUS_X
+                        * (1.0 + REGEN_CRUST_NOISE * cell_jitter(x, y, self.iter_count));
 
                     // This should probably not happen.
                     if self.imap[i] < self.num_plates {

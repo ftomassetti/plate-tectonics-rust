@@ -3,13 +3,14 @@
 A Rust port of the C++ [plate-tectonics](https://github.com/Mindwerks/plate-tectonics)
 simulation library, compiled to WebAssembly and driveable from the browser.
 
-The port is deliberately **mechanical**: unsigned wraparound tricks, `f32`
-widths and — most importantly — the exact random-number draw order and copy
-points are preserved, so the Rust build can reproduce the original's output.
+The port started out deliberately **mechanical**: unsigned wraparound tricks,
+`f32` widths and — most importantly — the exact random-number draw order and
+copy points were preserved, so the Rust build reproduced the original's output
+bit for bit.
 
-The default build then **fixes three modelling problems** the original has (see
-[Divergences from the C++](#divergences-from-the-c) below). Build with
-`--features classic_cpp` to turn those off and get bit-exact C++ behaviour.
+It has since **moved past that**. Three modelling problems in the original are
+fixed here, so the output no longer matches the C++ and is not meant to — see
+[Divergences from the C++](#divergences-from-the-c) below.
 
 ## Layout
 
@@ -33,8 +34,7 @@ echo 'export PATH="/opt/homebrew/opt/rustup/bin:$PATH"' >> ~/.zshrc
 
 ```sh
 cargo test                 # debug: overflow checks on (slow: ~1 min for the regression test)
-cargo test --release       # release: the same tests in ~5 s
-cargo test --release --features platec/classic_cpp   # adds the C++-baseline regression test
+cargo test --release       # release: the same 55 tests in ~5 s
 cargo clippy --all-targets
 ```
 
@@ -68,8 +68,8 @@ iteration per animation frame.
 
 ## Divergences from the C++
 
-All three are behind the `classic_cpp` feature — off by default, so the default
-build takes the fix; enable it to get the original behaviour back.
+These are intentional. The C++ behaviour is not available as a build option —
+if you need it, use the original library.
 
 * **The base terrain repeated twice down the map.** `createSlowNoise` sweeps `x`
   over 2π across the width but `y` over 4π across the height. Both coordinates
@@ -100,27 +100,15 @@ that dips under a neighbour legitimately shows as more than one patch.
 
 The regression test (`platec/tests/test_regression.rs`) runs a full 600×400
 seed-12345 simulation to completion and compares heightmap statistics against
-the baselines recorded in the C++ `test/test_regression.cpp`. It only applies to
-the bit-exact path, so it is compiled only under `classic_cpp`:
+recorded baselines. It keeps the shape of the C++ `test/test_regression.cpp`,
+but the baselines are this implementation's own — it guards our output against
+unintended change rather than checking fidelity to the original.
 
-```sh
-cargo test --release --features platec/classic_cpp
-```
-
-There the Rust output matches the **x86-64** baseline to 6+ significant digits:
-
-| metric  | Rust       | C++ x86-64 baseline |
-|---------|------------|---------------------|
-| min     | 0.04239162 | 0.0423916           |
-| max     | 17.840475  | 17.8405             |
-| mean    | 0.6240615  | 0.62406             |
-| median  | 0.11457818 | 0.114578            |
-| std_dev | 0.94567454 | 0.945673            |
-
-It matches x86-64 rather than the ARM64 baseline even when built on Apple
-silicon because Clang contracts `a*b+c` into a fused multiply-add on ARM by
-default, while Rust never contracts — so the Rust build follows the
-non-contracted (MSVC/GCC) arithmetic on every target.
+The initial-state baselines are stable across platforms: the map is thresholded
+to a pair of constants and the sea-level search pins the land fraction, so the
+aggregates barely move even when the terrain does. The final state accumulates
+floating-point error and can drift between architectures; the recorded values
+come from macOS ARM64.
 
 ## Notable design decisions
 

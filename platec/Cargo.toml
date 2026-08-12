@@ -9,7 +9,3 @@ description = "Plate tectonics simulation, ported from the C++ plate-tectonics l
 
 [features]
 strict_asserts = []
-# Restore bit-exact C++ behaviour, including the bugs the port deliberately
-# reproduced. Off by default: the default build takes the fixes instead. The
-# C++-baseline regression test only runs with this enabled.
-classic_cpp = []
