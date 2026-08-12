@@ -632,10 +632,7 @@ impl Lithosphere {
     ) {
         let world_width = self.world_dimension.get_width();
         let world_height = self.world_dimension.get_height();
-        // `hmap` is deliberately not cleared: every cell is written each step,
-        // either by a plate here or by the regeneration pass in `update`, and no
-        // cell is read before it is written (a read needs `imap[k]` to already
-        // name a plate, which only happens after the matching `hmap` write).
+        self.hmap.set_all(0.0);
         self.imap.set_all(0xFFFF_FFFF);
 
         for i in 0..self.num_plates {
