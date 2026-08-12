@@ -6,6 +6,11 @@ license = "LGPL-2.1-or-later"
 description = "Plate tectonics simulation, ported from the C++ plate-tectonics library"
 
 [dependencies]
+rayon = { version = "1", optional = true }
 
 [features]
+default = ["parallel"]
 strict_asserts = []
+# Spread the per-plate work and the regeneration sweep across cores. Off for
+# wasm, which has no threads by default.
+parallel = ["dep:rayon"]

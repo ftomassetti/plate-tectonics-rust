@@ -38,6 +38,24 @@ cargo test --release       # release: the same 55 tests in ~5 s
 cargo clippy --all-targets
 ```
 
+The `parallel` feature (on by default) spreads the per-plate work and the
+regeneration sweep across cores with rayon. It is bit-identical to the serial
+path, so results do not depend on it or on the core count. `platec-wasm` turns
+it off, since wasm has no threads by default; build the library with
+`--no-default-features` to do the same.
+
+Measured on 12 cores, whole-run average:
+
+| world | serial | parallel |
+|-------|--------|----------|
+| 512x512   |  2.92 ms/step |  2.50 ms/step |
+| 1024x1024 | 10.68 ms/step |  8.21 ms/step |
+| 2048x2048 | 40.39 ms/step | 29.63 ms/step |
+
+Most of a step is not parallelisable as the simulation stands: building the
+height and plate-index maps is ~60% of the time and is order-dependent across
+plates, with plates mutating each other's crust as they go.
+
 `cargo test` runs the full port of the C++ googletest suite — **55 tests**,
 matching the original one-for-one, plus the two acceptance cases that are
 commented out in the C++ source (ported as `#[ignore]`d).

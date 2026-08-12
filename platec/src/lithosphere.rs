@@ -12,6 +12,8 @@ use crate::plate::Plate;
 use crate::platec_assert;
 use crate::simplerandom::SimpleRandom;
 use crate::world_point::WorldPoint;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 pub const CONTINENTAL_BASE: f32 = 1.0;
 pub const OCEANIC_BASE: f32 = 0.1;
@@ -897,22 +899,31 @@ impl Lithosphere {
         // and that overwrite.
         std::mem::swap(&mut self.prev_imap, &mut self.imap);
 
-        // Realize accumulated external forces on each plate.
+        // Realize accumulated external forces on each plate. Each plate touches
+        // only itself here — its own map, bounds, segments and random source —
+        // so the plates run independently and the result does not depend on the
+        // order they are visited in.
         let compact = self.iter_count % COMPACT_BOUNDS_PERIOD == 0;
-        for i in 0..self.num_plates as usize {
+        let erode_now = self.erosion_period > 0 && self.iter_count % self.erosion_period == 0;
+        let active = &mut self.plates[..self.num_plates as usize];
+        let step_plate = |p: &mut Plate| {
             // Before `reset_segments`, which asserts that the segment buffer
             // matches the bounds area.
             if compact {
-                self.plates[i].compact_bounds(COMPACT_BOUNDS_MARGIN);
+                p.compact_bounds(COMPACT_BOUNDS_MARGIN);
             }
-            self.plates[i].reset_segments();
+            p.reset_segments();
 
-            if self.erosion_period > 0 && self.iter_count % self.erosion_period == 0 {
-                self.plates[i].erode(CONTINENTAL_BASE);
+            if erode_now {
+                p.erode(CONTINENTAL_BASE);
             }
 
-            self.plates[i].move_plate();
-        }
+            p.move_plate();
+        };
+        #[cfg(feature = "parallel")]
+        active.par_iter_mut().for_each(step_plate);
+        #[cfg(not(feature = "parallel"))]
+        active.iter_mut().for_each(step_plate);
 
         let mut oceanic_collisions = 0u32;
         let mut continental_collisions = 0u32;
@@ -953,64 +964,108 @@ impl Lithosphere {
 
         self.plate_indices_found.iter_mut().for_each(|v| *v = 0);
 
-        // Fill divergent boundaries with new crustal material, molten magma.
-        let mut i = 0usize;
-        for y in 0..BOOL_REGENERATE_CRUST * self.world_dimension.get_height() {
-            for x in 0..self.world_dimension.get_width() {
-                if self.imap[i] >= self.num_plates {
+        // Fill divergent boundaries with new crustal material, molten magma,
+        // and add the buoyancy bonus.
+        //
+        // Cells are independent, so this runs as a set of row bands. The two
+        // pieces of cross-cell state are collected per band and merged in band
+        // order afterwards, which reproduces the sequential result exactly:
+        // the plate tallies are order-free integer counts, and the `set_crust`
+        // calls are replayed in the row-major order they were recorded in.
+        // Nothing in the sweep reads the plates, so deferring those writes is
+        // safe.
+        let width = self.world_dimension.get_width() as usize;
+        let rows = (BOOL_REGENERATE_CRUST * self.world_dimension.get_height()) as usize;
+        let band_rows = 64usize.min(rows.max(1));
+        let band = width * band_rows;
+
+        let num_plates = self.num_plates;
+        let iter_count = self.iter_count;
+
+        let bands: Vec<_> = self.hmap.as_mut_slice()[..rows * width]
+            .chunks_mut(band)
+            .zip(self.imap.as_mut_slice()[..rows * width].chunks_mut(band))
+            .zip(self.amap.as_mut_slice()[..rows * width].chunks_mut(band))
+            .zip(self.prev_imap.as_slice()[..rows * width].chunks(band))
+            .enumerate()
+            .map(|(bi, (((h, im), am), pv))| (bi, h, im, am, pv))
+            .collect();
+
+        let run_band = |(bi, h, im, am, pv): (
+            usize,
+            &mut [f32],
+            &mut [u32],
+            &mut [u32],
+            &[u32],
+        )| {
+            let mut found = vec![0u32; num_plates as usize];
+            let mut deferred: Vec<(usize, u32, u32)> = Vec::new();
+            let y0 = bi * band_rows;
+
+            for c in 0..im.len() {
+                let x = (c % width) as u32;
+                let y = (y0 + c / width) as u32;
+
+                if im[c] >= num_plates {
                     // The owner of this new crust is that neighbour plate which
                     // was located at this point before the plates moved.
-                    self.imap[i] = self.prev_imap[i];
+                    im[c] = pv[c];
 
                     // If this is oceanic crust then add buoyancy to it: magma
                     // that has just crystallized into oceanic crust is more
                     // buoyant than that which has had a lot of time to cool
                     // down and become more dense.
-                    self.amap[i] = self.iter_count;
+                    am[c] = iter_count;
 
                     // Every cell uncovered in one iteration shares an age, and
-                    // the buoyancy pass below turns age into height with no
-                    // noise at all — so each iteration's wake came out as a
-                    // hard-edged iso-height band trailing the plate. Jitter the
-                    // starting height to dither those edges away.
-                    self.hmap[i] = OCEANIC_BASE
+                    // the buoyancy below turns age into height with no noise at
+                    // all — so each iteration's wake came out as a hard-edged
+                    // iso-height band trailing the plate. Jitter the starting
+                    // height to dither those edges away.
+                    h[c] = OCEANIC_BASE
                         * BUOYANCY_BONUS_X
-                        * (1.0 + REGEN_CRUST_NOISE * cell_jitter(x, y, self.iter_count));
+                        * (1.0 + REGEN_CRUST_NOISE * cell_jitter(x, y, iter_count));
 
                     // This should probably not happen.
-                    if self.imap[i] < self.num_plates {
-                        let owner = self.imap[i] as usize;
-                        let iter_count = self.iter_count;
-                        self.plates[owner].set_crust(x, y, OCEANIC_BASE, iter_count);
+                    if im[c] < num_plates {
+                        deferred.push((im[c] as usize, x, y));
                     }
                 } else {
-                    let owner = self.imap[i] as usize;
-                    self.plate_indices_found[owner] += 1;
-                    if self.hmap[i] <= 0.0 {
+                    found[im[c] as usize] += 1;
+                    if h[c] <= 0.0 {
                         panic!("Occupied point has no land mass!");
                     }
                 }
 
                 // Add some "virginity buoyancy" to all pixels for a visual
-                // boost! :) Folded into this sweep rather than run as its own
-                // pass over the map: it reads `amap` and `hmap`, both already
-                // final for this cell, and `remove_empty_plates` below touches
-                // only `imap`.
-                //
-                // Calculate the inverted age of this piece of crust, forcing the
-                // result to be the minimum of the inverted age and the max
-                // buoyancy bonus age.
-                let mut crust_age = self.iter_count.wrapping_sub(self.amap[i]);
+                // boost! :) Calculate the inverted age of this piece of crust,
+                // forcing the result to be the minimum of the inverted age and
+                // the max buoyancy bonus age.
+                let mut crust_age = iter_count.wrapping_sub(am[c]);
                 crust_age = MAX_BUOYANCY_AGE.wrapping_sub(crust_age);
                 crust_age &= u32::from(crust_age <= MAX_BUOYANCY_AGE).wrapping_neg();
 
-                self.hmap[i] += f32::from(self.hmap[i] < CONTINENTAL_BASE)
+                h[c] += f32::from(h[c] < CONTINENTAL_BASE)
                     * BUOYANCY_BONUS_X
                     * OCEANIC_BASE
                     * crust_age as f32
                     * MULINV_MAX_BUOYANCY_AGE;
+            }
 
-                i += 1;
+            (found, deferred)
+        };
+
+        #[cfg(feature = "parallel")]
+        let per_band: Vec<_> = bands.into_par_iter().map(run_band).collect();
+        #[cfg(not(feature = "parallel"))]
+        let per_band: Vec<_> = bands.into_iter().map(run_band).collect();
+
+        for (found, deferred) in per_band {
+            for (i, n) in found.iter().enumerate() {
+                self.plate_indices_found[i] += n;
+            }
+            for (owner, x, y) in deferred {
+                self.plates[owner].set_crust(x, y, OCEANIC_BASE, iter_count);
             }
         }
 

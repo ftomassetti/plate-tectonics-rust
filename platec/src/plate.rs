@@ -22,7 +22,8 @@ pub struct Plate {
     mass: Mass,
     movement: Movement,
     /// Boxed so that tests can inject a mock, as `plate::injectSegments` does.
-    segments: Box<dyn SegmentsApi>,
+    /// `Send` so that the per-plate work can be spread across threads.
+    segments: Box<dyn SegmentsApi + Send>,
 }
 
 impl Plate {
@@ -890,7 +891,7 @@ impl Plate {
 
     /// Visible for testing, as `plate::injectSegments` is in the C++.
     #[doc(hidden)]
-    pub fn inject_segments(&mut self, segments: Box<dyn SegmentsApi>) {
+    pub fn inject_segments(&mut self, segments: Box<dyn SegmentsApi + Send>) {
         self.segments = segments;
     }
 

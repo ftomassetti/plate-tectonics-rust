@@ -14,8 +14,24 @@
 #[macro_use]
 mod common;
 
-use std::cell::Cell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+
+/// A `Cell` that is also `Send`, so a mock can live in the plate's
+/// `Box<dyn SegmentsApi + Send>`. Same `get`/`set` shape as `Cell`.
+#[derive(Debug, Default)]
+struct SharedCell<T: Copy>(Mutex<T>);
+
+impl<T: Copy> SharedCell<T> {
+    fn new(value: T) -> Self {
+        Self(Mutex::new(value))
+    }
+    fn get(&self) -> T {
+        *self.0.lock().unwrap()
+    }
+    fn set(&self, value: T) {
+        *self.0.lock().unwrap() = value;
+    }
+}
 
 use platec::geometry::WorldDimension;
 use platec::mass::MassLike;
@@ -45,22 +61,22 @@ fn noisy_heightmap(seed: u32, wd: &WorldDimension) -> Vec<f32> {
 // Mocks. The C++ versions throw `runtime_error("Not implemented")` from the
 // methods a given test does not exercise; `unimplemented!()` is the equivalent.
 // Fields the tests inspect after the mock has been moved into the plate are
-// held behind `Rc<Cell<_>>` so the test keeps a handle on them.
+// held behind `Arc<SharedCell<_>>` so the test keeps a handle on them.
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
 struct MockSegmentData {
-    coll_count: Rc<Cell<u32>>,
-    area: Rc<Cell<u32>>,
-    enlarge_point: Rc<Cell<Option<(u32, u32)>>>,
+    coll_count: Arc<SharedCell<u32>>,
+    area: Arc<SharedCell<u32>>,
+    enlarge_point: Arc<SharedCell<Option<(u32, u32)>>>,
 }
 
 impl MockSegmentData {
     fn new(coll_count: u32, area: u32) -> Self {
         Self {
-            coll_count: Rc::new(Cell::new(coll_count)),
-            area: Rc::new(Cell::new(area)),
-            enlarge_point: Rc::new(Cell::new(None)),
+            coll_count: Arc::new(SharedCell::new(coll_count)),
+            area: Arc::new(SharedCell::new(area)),
+            enlarge_point: Arc::new(SharedCell::new(None)),
         }
     }
 }
@@ -110,7 +126,7 @@ impl SegmentDataApi for MockSegmentData {
 /// Port of the C++ `MockSegments`.
 struct MockSegments {
     p: (u32, u32),
-    id: Rc<Cell<ContinentId>>,
+    id: Arc<SharedCell<ContinentId>>,
     data: MockSegmentData,
 }
 
@@ -164,7 +180,7 @@ impl SegmentsApi for MockSegments {
 /// Port of the C++ `MockSegments2`.
 struct MockSegments2 {
     p: (u32, u32),
-    id: Rc<Cell<ContinentId>>,
+    id: Arc<SharedCell<ContinentId>>,
     data: MockSegmentData,
     index: u32,
 }
@@ -285,7 +301,7 @@ fn plate_add_collision() {
     let coll_count = m_seg.coll_count.clone();
     let m_segments = MockSegments {
         p: (123, 78),
-        id: Rc::new(Cell::new(99)),
+        id: Arc::new(SharedCell::new(99)),
         data: m_seg,
     };
     p.inject_segments(Box::new(m_segments));
@@ -316,7 +332,7 @@ fn plate_add_crust_by_collision() {
     let m_seg = MockSegmentData::new(7, 789);
     let area = m_seg.area.clone();
     let enlarge_point = m_seg.enlarge_point.clone();
-    let id = Rc::new(Cell::new(99u32));
+    let id = Arc::new(SharedCell::new(99u32));
     let m_segments = MockSegments2 {
         p: (world_point_x, world_point_y),
         id: id.clone(),
@@ -376,7 +392,7 @@ fn plate_add_crust_by_subduction() {
     let m_seg = MockSegmentData::new(7, 789);
     let m_segments = MockSegments2 {
         p: (world_point_x, world_point_y),
-        id: Rc::new(Cell::new(99)),
+        id: Arc::new(SharedCell::new(99)),
         data: m_seg,
         index: index_in_plate,
     };
