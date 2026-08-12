@@ -38,6 +38,15 @@ const BOOL_REGENERATE_CRUST: u32 = 1;
 #[cfg(not(feature = "classic_cpp"))]
 const REGEN_CRUST_NOISE: f32 = 0.10;
 
+/// Height difference below which two overlapping plates count as equally
+/// buoyant. The C++ uses `2 * f32::EPSILON` (~2.4e-7), far tighter than any
+/// physically meaningful difference at heights of order 0.1 to 1.0, so across a
+/// broad overlap the winner was effectively picked by crust-age noise. This is
+/// sized to the regenerated-crust jitter above, the dominant source of that
+/// noise.
+#[cfg(not(feature = "classic_cpp"))]
+const BUOYANCY_TIE: f32 = REGEN_CRUST_NOISE * OCEANIC_BASE * BUOYANCY_BONUS_X;
+
 /// Deterministic per-cell jitter in [-1, 1).
 ///
 /// Hashed from the location and the iteration rather than drawn from
@@ -695,10 +704,31 @@ impl Lithosphere {
         let owner = self.imap[k];
         let prev_timestamp = self.plates[owner as usize].get_crust_timestamp(x_mod, y_mod);
         let this_timestamp = self.plates[iu].get_map().1[j];
+
+        #[cfg(feature = "classic_cpp")]
         let prev_is_buoyant = (self.hmap[k] > this_map_j)
             || ((self.hmap[k] + 2.0 * f32::EPSILON > this_map_j)
                 && (self.hmap[k] < 2.0 * f32::EPSILON + this_map_j)
                 && (prev_timestamp >= this_timestamp));
+
+        // Where two plates overlap with near-equal height, the C++ decides who
+        // subducts by crust age. Age varies from cell to cell across an overlap,
+        // so the winner alternates and the plate map comes out shredded into
+        // thin interleaved slivers of both plates. Decide by continuity instead:
+        // within the tie band, whoever held the cell last iteration keeps it, so
+        // an overlap resolves as one coherent region with a stable boundary.
+        #[cfg(not(feature = "classic_cpp"))]
+        let prev_is_buoyant = if (self.hmap[k] - this_map_j).abs() <= BUOYANCY_TIE {
+            if self.prev_imap[k] == owner {
+                true
+            } else if self.prev_imap[k] == i {
+                false
+            } else {
+                prev_timestamp >= this_timestamp
+            }
+        } else {
+            self.hmap[k] > this_map_j
+        };
 
         // Handle subduction of oceanic crust as a special case.
         if this_is_oceanic && prev_is_buoyant {
