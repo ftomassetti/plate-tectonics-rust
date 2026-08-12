@@ -99,6 +99,10 @@ fn stats_match(
     extrema_ok && central_ok
 }
 
+/// Only meaningful against the bit-exact C++ behaviour: the default build
+/// deliberately diverges (see the `classic_cpp` feature). Run with
+/// `cargo test --release --features classic_cpp`.
+#[cfg(feature = "classic_cpp")]
 #[test]
 fn regression_simulation_seed12345_output_consistency() {
     let seed = 12345u32;
