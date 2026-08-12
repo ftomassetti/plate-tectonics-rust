@@ -1,7 +1,8 @@
 //! plate-tectonics — a plate tectonics simulation.
 //!
 //! Copyright (C) 2012-2013 Lauri Viitanen
-//! Copyright (C) 2014-2015 Federico Tomassetti, Bret Curtis
+//! Copyright (C) 2014-2015 Bret Curtis
+//! Copyright (C) 2014-2026 Federico Tomassetti
 //! Licensed under the GNU LGPL v2.1 or later.
 //!
 //! Plates are grown from seed points on a toroidal world, then moved, collided,

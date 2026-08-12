@@ -2,7 +2,8 @@
 //!
 //! plate-tectonics, a plate tectonics simulation library
 //! Copyright (C) 2012-2013 Lauri Viitanen
-//! Copyright (C) 2014-2015 Federico Tomassetti, Bret Curtis
+//! Copyright (C) 2014-2015 Bret Curtis
+//! Copyright (C) 2014-2026 Federico Tomassetti
 //! Licensed under the GNU LGPL v2.1 or later.
 
 /// The double-precision literal rounded to `f32`, i.e. the
