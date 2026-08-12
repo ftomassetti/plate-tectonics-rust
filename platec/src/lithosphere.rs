@@ -29,6 +29,9 @@ const NO_COLLISION_TIME_LIMIT: u32 = 10;
 
 /// The C++ `#define BOOL_REGENERATE_CRUST 1`.
 const BOOL_REGENERATE_CRUST: u32 = 1;
+// The buoyancy sweep is folded into the regeneration sweep, which only covers
+// the whole map while this is 1.
+const _: () = assert!(BOOL_REGENERATE_CRUST == 1);
 
 /// How often plate rectangles are refitted to their contents, in iterations.
 /// The refit costs one linear read of each plate's box, so amortising it over a
@@ -627,7 +630,10 @@ impl Lithosphere {
     ) {
         let world_width = self.world_dimension.get_width();
         let world_height = self.world_dimension.get_height();
-        self.hmap.set_all(0.0);
+        // `hmap` is deliberately not cleared: every cell is written each step,
+        // either by a plate here or by the regeneration pass in `update`, and no
+        // cell is read before it is written (a read needs `imap[k]` to already
+        // name a plate, which only happens after the matching `hmap` write).
         self.imap.set_all(0xFFFF_FFFF);
 
         for i in 0..self.num_plates {
@@ -884,9 +890,12 @@ impl Lithosphere {
             return;
         }
 
-        let map_area = self.world_dimension.get_area();
-        // Keep a copy of the previous index map.
-        self.prev_imap.copy_from(&self.imap);
+        // Retire the current index map into `prev_imap` by swapping the two
+        // buffers rather than copying: `update_height_and_plate_index_maps`
+        // overwrites every cell of `imap` below, so its incoming contents (the
+        // map from two steps ago) are dead. Nothing reads `imap` between here
+        // and that overwrite.
+        std::mem::swap(&mut self.prev_imap, &mut self.imap);
 
         // Realize accumulated external forces on each plate.
         let compact = self.iter_count % COMPACT_BOUNDS_PERIOD == 0;
@@ -981,27 +990,31 @@ impl Lithosphere {
                         panic!("Occupied point has no land mass!");
                     }
                 }
+
+                // Add some "virginity buoyancy" to all pixels for a visual
+                // boost! :) Folded into this sweep rather than run as its own
+                // pass over the map: it reads `amap` and `hmap`, both already
+                // final for this cell, and `remove_empty_plates` below touches
+                // only `imap`.
+                //
+                // Calculate the inverted age of this piece of crust, forcing the
+                // result to be the minimum of the inverted age and the max
+                // buoyancy bonus age.
+                let mut crust_age = self.iter_count.wrapping_sub(self.amap[i]);
+                crust_age = MAX_BUOYANCY_AGE.wrapping_sub(crust_age);
+                crust_age &= u32::from(crust_age <= MAX_BUOYANCY_AGE).wrapping_neg();
+
+                self.hmap[i] += f32::from(self.hmap[i] < CONTINENTAL_BASE)
+                    * BUOYANCY_BONUS_X
+                    * OCEANIC_BASE
+                    * crust_age as f32
+                    * MULINV_MAX_BUOYANCY_AGE;
+
                 i += 1;
             }
         }
 
         self.remove_empty_plates();
-
-        // Add some "virginity buoyancy" to all pixels for a visual boost! :)
-        for i in 0..map_area as usize {
-            // Calculate the inverted age of this piece of crust, forcing the
-            // result to be the minimum of the inverted age and the max buoyancy
-            // bonus age.
-            let mut crust_age = self.iter_count.wrapping_sub(self.amap[i]);
-            crust_age = MAX_BUOYANCY_AGE.wrapping_sub(crust_age);
-            crust_age &= u32::from(crust_age <= MAX_BUOYANCY_AGE).wrapping_neg();
-
-            self.hmap[i] += f32::from(self.hmap[i] < CONTINENTAL_BASE)
-                * BUOYANCY_BONUS_X
-                * OCEANIC_BASE
-                * crust_age as f32
-                * MULINV_MAX_BUOYANCY_AGE;
-        }
 
         self.iter_count += 1;
     }
