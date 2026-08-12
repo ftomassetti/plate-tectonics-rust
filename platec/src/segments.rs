@@ -10,7 +10,7 @@ use crate::bounds::Bounds;
 use crate::geometry::WorldDimension;
 use crate::heightmap::HeightMap;
 use crate::platec_assert;
-use crate::segment_creator::create_segment;
+use crate::segment_creator::{create_segment, SpanScratch};
 use crate::segment_data::{SegmentData, SegmentDataApi};
 
 pub type ContinentId = u32;
@@ -47,6 +47,10 @@ pub struct Segments {
     segment: Vec<ContinentId>,
     /// Should be the same as the bounds area of the plate.
     area: u32,
+    /// Span buffers reused by `create_segment`. The C++ keeps these as `static`
+    /// vectors for exactly this reason; owning them here keeps the flood fill
+    /// allocation-free after the first call.
+    scratch: SpanScratch,
 }
 
 impl Segments {
@@ -56,7 +60,18 @@ impl Segments {
             // C++ memsets to 255, i.e. every word becomes 0xFFFFFFFF.
             segment: vec![u32::MAX; plate_area as usize],
             area: plate_area,
+            scratch: SpanScratch::default(),
         }
+    }
+
+    /// Move the span scratch out so that `create_segment` can hold it mutably
+    /// alongside `&mut Segments`. Always paired with [`Segments::put_scratch`].
+    pub(crate) fn take_scratch(&mut self) -> SpanScratch {
+        std::mem::take(&mut self.scratch)
+    }
+
+    pub(crate) fn put_scratch(&mut self, scratch: SpanScratch) {
+        self.scratch = scratch;
     }
 
     pub fn ids(&self) -> &[ContinentId] {

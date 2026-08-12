@@ -5,8 +5,8 @@
 //! [`SegmentCtx`] and the whole thing collapses into a free function.
 //!
 //! The C++ keeps the span scratch buffers in `static` vectors as a performance
-//! cache (they are cleared after every call, so this is semantically identical
-//! to allocating them locally).
+//! cache; [`SpanScratch`] does the same, owned by the `Segments` the fill runs
+//! against, so a fill allocates nothing after the first call.
 
 use crate::movement::CONT_BASE;
 use crate::rectangle::Rectangle;
@@ -48,39 +48,110 @@ fn calc_direction(
     nbour_id
 }
 
-/// Find an unscanned span on this line.
-fn scan_spans(
-    line: usize,
-    start: &mut u32,
-    end: &mut u32,
-    spans_todo: &mut [Vec<u32>],
-    spans_done: &[Vec<u32>],
-    bounds_width: u32,
-) {
-    loop {
-        *end = spans_todo[line].pop().unwrap();
-        *start = spans_todo[line].pop().unwrap();
+/// Reusable span buffers for the flood fill in [`create_segment`].
+///
+/// Besides holding the `todo`/`done` span lists across calls, this tracks which
+/// lines still carry unprocessed spans. The C++ rescans every line of the plate
+/// on every round of the fill; walking the active lines instead visits exactly
+/// the same lines in exactly the same (ascending) order, just without the empty
+/// ones in between.
+#[derive(Default)]
+pub struct SpanScratch {
+    todo: Vec<Vec<u32>>,
+    done: Vec<Vec<u32>>,
+    /// Lines whose `todo` is non-empty, kept sorted ascending.
+    active: Vec<u32>,
+    /// Lines whose buffers need emptying once the fill is done.
+    touched: Vec<u32>,
+    is_touched: Vec<bool>,
+}
 
-        // Reduce any done spans from this span. Saved coordinates are AT the
-        // point that was included last to the span — that's why equalities
-        // matter.
-        let mut j = 0;
-        while j < spans_done[line].len() {
-            if *start >= spans_done[line][j] && *start <= spans_done[line][j + 1] {
-                *start = spans_done[line][j + 1] + 1;
-            }
-            if *end >= spans_done[line][j] && *end <= spans_done[line][j + 1] {
-                *end = spans_done[line][j].wrapping_sub(1);
-            }
-            j += 2;
+impl SpanScratch {
+    fn prepare(&mut self, height: usize) {
+        if self.todo.len() < height {
+            self.todo.resize_with(height, Vec::new);
+            self.done.resize_with(height, Vec::new);
+            self.is_touched.resize(height, false);
         }
+    }
 
-        // Unsigned-ness hacking! Required to fix the underflow of end - 1.
-        *start |= u32::from(*end >= bounds_width).wrapping_neg();
-        *end = end.wrapping_sub(u32::from(*end >= bounds_width));
+    fn mark_touched(&mut self, line: u32) {
+        if !self.is_touched[line as usize] {
+            self.is_touched[line as usize] = true;
+            self.touched.push(line);
+        }
+    }
 
-        if !(*start > *end && !spans_todo[line].is_empty()) {
-            break;
+    fn push_todo(&mut self, line: u32, start: u32, end: u32) {
+        self.todo[line as usize].push(start);
+        self.todo[line as usize].push(end);
+        if let Err(pos) = self.active.binary_search(&line) {
+            self.active.insert(pos, line);
+        }
+        self.mark_touched(line);
+    }
+
+    fn push_done(&mut self, line: u32, start: u32, end: u32) {
+        self.done[line as usize].push(start);
+        self.done[line as usize].push(end);
+        self.mark_touched(line);
+    }
+
+    /// The lowest active line strictly greater than `after`, which is what the
+    /// C++'s ascending `for line in 0..height` scan lands on next. Spans pushed
+    /// to a line above the cursor are therefore picked up in this same round,
+    /// and spans pushed below it wait for the next one — as in the original.
+    fn next_active(&self, after: i64) -> Option<u32> {
+        let from = self.active.partition_point(|&l| (l as i64) <= after);
+        self.active.get(from).copied()
+    }
+
+    fn deactivate_if_drained(&mut self, line: u32) {
+        if self.todo[line as usize].is_empty() {
+            if let Ok(pos) = self.active.binary_search(&line) {
+                self.active.remove(pos);
+            }
+        }
+    }
+
+    /// Empty every buffer this fill touched, leaving the allocations in place.
+    fn finish(&mut self) {
+        for &line in self.touched.iter() {
+            self.todo[line as usize].clear();
+            self.done[line as usize].clear();
+            self.is_touched[line as usize] = false;
+        }
+        self.touched.clear();
+        self.active.clear();
+    }
+
+    /// Find an unscanned span on this line.
+    fn scan_spans(&mut self, line: usize, start: &mut u32, end: &mut u32, bounds_width: u32) {
+        loop {
+            *end = self.todo[line].pop().unwrap();
+            *start = self.todo[line].pop().unwrap();
+
+            // Reduce any done spans from this span. Saved coordinates are AT the
+            // point that was included last to the span — that's why equalities
+            // matter.
+            let mut j = 0;
+            while j < self.done[line].len() {
+                if *start >= self.done[line][j] && *start <= self.done[line][j + 1] {
+                    *start = self.done[line][j + 1] + 1;
+                }
+                if *end >= self.done[line][j] && *end <= self.done[line][j + 1] {
+                    *end = self.done[line][j].wrapping_sub(1);
+                }
+                j += 2;
+            }
+
+            // Unsigned-ness hacking! Required to fix the underflow of end - 1.
+            *start |= u32::from(*end >= bounds_width).wrapping_neg();
+            *end = end.wrapping_sub(u32::from(*end >= bounds_width));
+
+            if !(*start > *end && !self.todo[line].is_empty()) {
+                break;
+            }
         }
     }
 }
@@ -115,31 +186,27 @@ pub fn create_segment(x: u32, y: u32, ctx: &SegmentCtx, segments: &mut Segments)
 
     let rect = Rectangle::new(*ctx.world_dimension, x, x, y, y);
     let mut p_data = SegmentData::new(rect, 0);
-    let mut spans_todo: Vec<Vec<u32>> = vec![Vec::new(); bounds_height as usize];
-    let mut spans_done: Vec<Vec<u32>> = vec![Vec::new(); bounds_height as usize];
+
+    // Borrowed out of `segments` so that the fill can hold it mutably next to
+    // the segment ids; handed back before returning.
+    let mut scratch = segments.take_scratch();
+    scratch.prepare(bounds_height as usize);
 
     segments.ids_mut()[origin_index as usize] = id;
-    spans_todo[y as usize].push(x);
-    spans_todo[y as usize].push(x);
+    scratch.push_todo(y, x, x);
 
     loop {
         let mut lines_processed = 0u32;
-        for line in 0..bounds_height {
+        let mut cursor: i64 = -1;
+
+        while let Some(line) = scratch.next_active(cursor) {
+            cursor = line as i64;
             let line_us = line as usize;
-            if spans_todo[line_us].is_empty() {
-                continue;
-            }
 
             let mut start = 0u32;
             let mut end = 0u32;
-            scan_spans(
-                line_us,
-                &mut start,
-                &mut end,
-                &mut spans_todo,
-                &spans_done,
-                bounds_width,
-            );
+            scratch.scan_spans(line_us, &mut start, &mut end, bounds_width);
+            scratch.deactivate_if_drained(line);
 
             if start > end {
                 continue; // Nothing to do here anymore...
@@ -179,8 +246,7 @@ pub fn create_segment(x: u32, y: u32, ctx: &SegmentCtx, segments: &mut Segments)
                 && map[(line_here + bounds_width - 1) as usize] >= CONT_BASE
             {
                 segments.ids_mut()[(line_here + bounds_width - 1) as usize] = id;
-                spans_todo[line_us].push(bounds_width - 1);
-                spans_todo[line_us].push(bounds_width - 1);
+                scratch.push_todo(line, bounds_width - 1, bounds_width - 1);
             }
 
             // Check if we should wrap around the right edge.
@@ -190,8 +256,7 @@ pub fn create_segment(x: u32, y: u32, ctx: &SegmentCtx, segments: &mut Segments)
                 && map[line_here as usize] >= CONT_BASE
             {
                 segments.ids_mut()[line_here as usize] = id;
-                spans_todo[line_us].push(0);
-                spans_todo[line_us].push(0);
+                scratch.push_todo(line, 0, 0);
             }
 
             // Update the segment area counter.
@@ -232,8 +297,7 @@ pub fn create_segment(x: u32, y: u32, ctx: &SegmentCtx, segments: &mut Segments)
                         j -= 1; // Last point is invalid.
                         let b = j;
 
-                        spans_todo[row_above as usize].push(a);
-                        spans_todo[row_above as usize].push(b);
+                        scratch.push_todo(row_above, a, b);
                         j += 1; // Skip the last scanned point.
                     }
                     j += 1;
@@ -261,16 +325,14 @@ pub fn create_segment(x: u32, y: u32, ctx: &SegmentCtx, segments: &mut Segments)
                         j -= 1; // Last point is invalid.
                         let b = j;
 
-                        spans_todo[row_below as usize].push(a);
-                        spans_todo[row_below as usize].push(b);
+                        scratch.push_todo(row_below, a, b);
                         j += 1; // Skip the last scanned point.
                     }
                     j += 1;
                 }
             }
 
-            spans_done[line_us].push(start);
-            spans_done[line_us].push(end);
+            scratch.push_done(line, start, end);
             lines_processed += 1;
         }
 
@@ -279,6 +341,8 @@ pub fn create_segment(x: u32, y: u32, ctx: &SegmentCtx, segments: &mut Segments)
         }
     }
 
+    scratch.finish();
+    segments.put_scratch(scratch);
     segments.add(p_data);
 
     id
