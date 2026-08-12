@@ -8,8 +8,8 @@ subducted, eroded and aggregated over a few hundred iterations to build a
 heightmap. See [Simulation notes](#simulation-notes) for the parts of the model
 worth knowing about.
 
-Descended from the C++ [plate-tectonics](https://github.com/Mindwerks/plate-tectonics)
-library, which it no longer tracks.
+The project has been going since 2012 and has changed language twice along the
+way — see [History](#history).
 
 ## Layout
 
@@ -138,6 +138,26 @@ come from macOS ARM64.
   `--features strict_asserts` to make them fatal.
 * **Buffers are owned `Vec`s.** `HeightMap`, `AgeMap` and `IndexMap` are all
   aliases of `Matrix<T>`.
+
+## History
+
+**2012–2013 — `platec`, by Lauri Viitanen.** The simulation started as part of
+an academic thesis at Metropolia University of Applied Sciences in Helsinki.
+Everything the model does — growing plates from seed points, the buoyancy rules
+that decide which plate subducts, folding crust at collisions, the restart
+cycle — comes from that work.
+
+**2014 onwards — C++, by Federico Tomassetti.** Federico picked the project up
+and translated it to C++, published as
+[Mindwerks/plate-tectonics](https://github.com/Mindwerks/plate-tectonics), with
+contributions from Bret Curtis. That version became the terrain engine behind
+[WorldEngine](https://github.com/Mindwerks/worldengine).
+
+**2026 — Rust.** Translated again, this time to Rust, and compiled to
+WebAssembly so it runs in a browser. The translation was initially mechanical
+and reproduced the C++ output bit for bit, which is how it was checked. It has
+since stopped tracking the C++ version: see [Simulation notes](#simulation-notes)
+for the modelling changes, none of which exist upstream.
 
 ## License
 
