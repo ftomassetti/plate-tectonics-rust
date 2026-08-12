@@ -1,14 +1,13 @@
-//! Port of `src/rectangle.hpp` / `src/rectangle.cpp`.
+//! Rectangles on the toroidal world map.
 
 use crate::geometry::WorldDimension;
 use crate::platec_assert;
 
-/// Port of the C++ `#define BAD_INDEX 0xFFFFFFFF`.
+/// Returned when a point maps to no index.
 pub const BAD_INDEX: u32 = 0xFFFF_FFFF;
 
-/// Port of `Platec::Rectangle`.
 ///
-/// The C++ stores `const WorldDimension _worldDimension` by value; we do the
+/// The world dimension is stored by value;
 /// same (it is `Copy`).
 #[derive(Clone, Copy, Debug)]
 pub struct Rectangle {

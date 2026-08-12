@@ -1,4 +1,4 @@
-//! Port of `src/movement.hpp` / `src/movement.cpp`.
+//! Plate velocity, rotation and collision response.
 
 use crate::geometry::{FloatVector, WorldDimension};
 use crate::mass::{Mass, MassLike};
@@ -13,13 +13,13 @@ pub const DEFORMATION_WEIGHT: f32 = 2.0;
 
 pub type ContinentId = u32;
 
-/// Port of the C++ `IMovement` interface.
 pub trait MovementLike {
     fn velocity_unit_vector(&self) -> FloatVector;
     fn dec_impulse(&mut self, delta: FloatVector);
 }
 
-/// Port of the C++ `IPlate` (which is `IMass` + `IMovement`). `Movement::collide`
+/// A plate as `Movement::collide` sees it: mass plus motion.
+/// `Movement::collide`
 /// takes one of these; `test_movement` supplies a mock.
 pub trait PlateLike: MassLike + MovementLike {}
 
@@ -42,7 +42,7 @@ pub struct Movement {
 }
 
 impl Movement {
-    /// Faithful port of the C++ constructor, whose random-number handling is
+    /// The random-number handling here is
     /// subtle and load-bearing:
     ///
     /// ```text
@@ -57,8 +57,8 @@ impl Movement {
     /// generator is untouched, and the stored member ends up advanced by
     /// exactly one draw. `test_movement` pins this exactly.
     pub fn new(randsource: SimpleRandom, world_dimension: WorldDimension) -> Self {
-        let mut member = randsource; // C++: _randsource(randsource)
-        let mut param = randsource; // C++: the by-value parameter
+        let mut member = randsource;
+        let mut param = randsource;
         let rot_dir = if param.next() % 2 != 0 { 1.0f32 } else { -1.0f32 };
         let angle = 2.0f32 * PI * member.next_float();
         Self {
@@ -91,7 +91,7 @@ impl Movement {
         self.velocity -= vel_dec;
     }
 
-    /// C++ `Movement::move` (`move` is a keyword in Rust).
+    /// Advance the plate along its trajectory.
     pub fn move_plate(&mut self) {
         // Apply any new impulses to the plate's trajectory.
         self.vx += self.dx;
@@ -160,12 +160,12 @@ impl Movement {
         self.velocity
     }
 
-    /// Deprecated in the C++ too; use [`Movement::velocity_unit_vector`].
+    /// Deprecated; use [`Movement::velocity_unit_vector`].
     pub fn vel_x(&self) -> f32 {
         self.vx
     }
 
-    /// Deprecated in the C++ too; use [`Movement::velocity_unit_vector`].
+    /// Deprecated; use [`Movement::velocity_unit_vector`].
     pub fn vel_y(&self) -> f32 {
         self.vy
     }

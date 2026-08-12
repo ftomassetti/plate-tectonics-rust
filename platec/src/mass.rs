@@ -1,10 +1,10 @@
-//! Port of `src/mass.hpp` / `src/mass.cpp`.
+//! Plate mass and centre of mass.
 
 use crate::geometry::{Dimension, FloatPoint};
 use crate::platec_assert;
 
-/// Port of the C++ `IMass` interface. `Movement::collide` takes one of these,
-/// and `test_movement` supplies a mock, so it stays a trait.
+/// `Movement::collide` takes one of these, and `test_movement` supplies a mock,
+/// so it stays a trait.
 pub trait MassLike {
     fn get_mass(&self) -> f32;
     fn mass_center(&self) -> FloatPoint;
@@ -28,7 +28,6 @@ impl MassBuilder {
         }
     }
 
-    /// Port of `MassBuilder(const float* m, const Dimension&)`.
     pub fn from_slice(m: &[f32], dimension: &Dimension) -> Self {
         let mut builder = MassBuilder::new();
         let mut k = 0usize;

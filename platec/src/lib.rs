@@ -1,17 +1,15 @@
-//! plate-tectonics — a Rust port of the C++ plate tectonics simulation library
-//! (<https://github.com/Mindwerks/plate-tectonics>).
+//! plate-tectonics — a plate tectonics simulation.
 //!
 //! Copyright (C) 2012-2013 Lauri Viitanen
 //! Copyright (C) 2014-2015 Federico Tomassetti, Bret Curtis
 //! Licensed under the GNU LGPL v2.1 or later.
 //!
-//! The port is deliberately mechanical: unsigned wraparound tricks, `f32`
-//! widths and the exact random-number draw order are preserved so that output
-//! matches the original.
+//! Plates are grown from seed points on a toroidal world, then moved, collided,
+//! subducted, eroded and aggregated over a few hundred iterations to build a
+//! heightmap. Unsigned wraparound and `f32` widths are load-bearing throughout.
 
-// The port is mechanical, and several lints fire on constructs kept verbatim
-// from the C++ for numerical fidelity (literal precision, `-1.0f * x`,
-// negated float comparisons, and so on).
+// Several lints fire on constructs kept deliberately for numerical fidelity
+// (literal precision, `-1.0 * x`, negated float comparisons, and so on).
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::manual_abs_diff)]
 #![allow(clippy::manual_is_multiple_of)]

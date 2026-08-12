@@ -1,4 +1,4 @@
-//! Lookup tables from `src/simplexnoise.hpp`, transcribed verbatim.
+//! Gradient and permutation tables for the simplex noise.
 
 /// The gradients are the midpoints of the vertices of a cube.
 pub(crate) const GRAD3: [[i32; 3]; 12] = [

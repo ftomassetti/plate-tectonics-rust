@@ -1,12 +1,9 @@
-//! Port of `src/segment_creator.hpp` / `src/segment_creator.cpp`.
+//! Flood fill that partitions a plate into continents.
 //!
-//! The C++ `MySegmentCreator` class exists purely to bundle references to the
-//! bounds, the height map and the segments; here those arrive through
-//! [`SegmentCtx`] and the whole thing collapses into a free function.
-//!
-//! The C++ keeps the span scratch buffers in `static` vectors as a performance
-//! cache; [`SpanScratch`] does the same, owned by the `Segments` the fill runs
-//! against, so a fill allocates nothing after the first call.
+//! The bounds, height map and segments the fill needs arrive through a
+//! [`SegmentCtx`]. [`SpanScratch`] holds the span buffers, owned by the
+//! `Segments` the fill runs against, so a fill allocates nothing after the
+//! first call.
 
 use crate::movement::CONT_BASE;
 use crate::rectangle::Rectangle;
@@ -51,10 +48,8 @@ fn calc_direction(
 /// Reusable span buffers for the flood fill in [`create_segment`].
 ///
 /// Besides holding the `todo`/`done` span lists across calls, this tracks which
-/// lines still carry unprocessed spans. The C++ rescans every line of the plate
-/// on every round of the fill; walking the active lines instead visits exactly
-/// the same lines in exactly the same (ascending) order, just without the empty
-/// ones in between.
+/// lines still carry unprocessed spans, so that a round of the fill can walk
+/// just those lines instead of every line of the plate.
 #[derive(Default)]
 pub struct SpanScratch {
     todo: Vec<Vec<u32>>,
@@ -97,10 +92,10 @@ impl SpanScratch {
         self.mark_touched(line);
     }
 
-    /// The lowest active line strictly greater than `after`, which is what the
-    /// C++'s ascending `for line in 0..height` scan lands on next. Spans pushed
-    /// to a line above the cursor are therefore picked up in this same round,
-    /// and spans pushed below it wait for the next one — as in the original.
+    /// The lowest active line strictly greater than `after`. A round therefore
+    /// sweeps the lines in ascending order: spans pushed to a line above the
+    /// cursor are picked up in this same round, and spans pushed below it wait
+    /// for the next one.
     fn next_active(&self, after: i64) -> Option<u32> {
         let from = self.active.partition_point(|&l| (l as i64) <= after);
         self.active.get(from).copied()

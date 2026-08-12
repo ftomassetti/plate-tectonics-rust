@@ -1,8 +1,7 @@
-//! Port of `test/test_rectangle.cpp`.
+//! Tests for rectangles on the toroidal world map.
 
-// The port is mechanical, and several lints fire on constructs kept verbatim
-// from the C++ for numerical fidelity (literal precision, `-1.0f * x`,
-// negated float comparisons, and so on).
+// Several lints fire on constructs kept deliberately for numerical fidelity
+// (literal precision, `-1.0 * x`, negated float comparisons, and so on).
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::manual_abs_diff)]
 #![allow(clippy::manual_is_multiple_of)]

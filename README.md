@@ -1,16 +1,15 @@
 # plate-tectonics-rust
 
-A Rust port of the C++ [plate-tectonics](https://github.com/Mindwerks/plate-tectonics)
-simulation library, compiled to WebAssembly and driveable from the browser.
+A plate tectonics simulation in Rust, compiled to WebAssembly and driveable
+from the browser.
 
-The port started out deliberately **mechanical**: unsigned wraparound tricks,
-`f32` widths and — most importantly — the exact random-number draw order and
-copy points were preserved, so the Rust build reproduced the original's output
-bit for bit.
+Plates are grown from seed points on a toroidal world, then moved, collided,
+subducted, eroded and aggregated over a few hundred iterations to build a
+heightmap. See [Simulation notes](#simulation-notes) for the parts of the model
+worth knowing about.
 
-It has since **moved past that**. Three modelling problems in the original are
-fixed here, so the output no longer matches the C++ and is not meant to — see
-[Divergences from the C++](#divergences-from-the-c) below.
+Descended from the C++ [plate-tectonics](https://github.com/Mindwerks/plate-tectonics)
+library, which it no longer tracks.
 
 ## Layout
 
@@ -56,11 +55,10 @@ Most of a step is not parallelisable as the simulation stands: building the
 height and plate-index maps is ~60% of the time and is order-dependent across
 plates, with plates mutating each other's crust as they go.
 
-`cargo test` runs the full port of the C++ googletest suite — **55 tests**,
-matching the original one-for-one, plus the two acceptance cases that are
-commented out in the C++ source (ported as `#[ignore]`d).
+`cargo test` runs **55 tests**, plus two `#[ignore]`d platform-dependent
+acceptance cases.
 
-Running the suite in a **debug** build is deliberate: the original relies on
+Running the suite in a **debug** build is deliberate: the simulation relies on
 unsigned integer overflow in roughly two dozen places, and Rust's debug overflow
 checks panic on any site where that was not modelled explicitly with
 `wrapping_*`.
@@ -77,39 +75,38 @@ The demo lets you configure every parameter of `platec_api_create` (seed,
 dimensions, sea level, plate count, erosion period, folding ratio, aggregation
 thresholds, cycles), generate a world, and then run / pause / single-step the
 simulation while watching it evolve. Four views are available — hypsometric
-terrain (using the colour ramp from the C++ `examples/map_drawing.cpp`),
-grayscale height, plate ownership, and crust age — with optional plate-boundary
+terrain, grayscale height, plate ownership, and crust age — with optional plate-boundary
 outlines and per-plate velocity arrows.
 
 A 512×512 world steps in roughly 6 ms, so the simulation renders smoothly at one
 iteration per animation frame.
 
-## Divergences from the C++
+## Simulation notes
 
-These are intentional. The C++ behaviour is not available as a build option —
-if you need it, use the original library.
+Three parts of the model are worth calling out, because each fixes a problem
+that is easy to reintroduce.
 
-* **The base terrain repeated twice down the map.** `createSlowNoise` sweeps `x`
-  over 2π across the width but `y` over 4π across the height. Both coordinates
-  drive a circle fed into the 4D simplex noise, and one full sweep is what makes
-  the result tile — two sweeps make it tile twice, so the bottom half of every
-  world was a near-copy of the top half. Measured on the 513×513 grid
+* **The base terrain must tile exactly once per axis.** `create_slow_noise`
+  sweeps both `x` and `y` over 2π, each driving a circle fed into the 4D simplex
+  noise. One full sweep per axis is what makes the result tile; two sweeps on an
+  axis make it tile *twice*, which shows up as the bottom half of every world
+  being a near-copy of the top half. Measured on the 513×513 grid
   `Lithosphere::new` builds, the vertical self-correlation of the base noise at
-  lag 256 was **+0.9999**; with the sweep corrected it is +0.19, on a normal
-  decaying autocorrelation curve.
-* **Regenerated sea floor came out in hard iso-age bands.** Every cell uncovered
-  by a moving plate in one iteration shares an age, and the buoyancy pass turns
-  age into height with no noise at all, so each iteration's wake was a
-  hard-edged band trailing the plate — the long straight streaks across the deep
-  ocean. New crust now gets ±10% height jitter, hashed from `(x, y, iteration)`
-  rather than drawn from `randsource` so the random draw order is untouched.
-* **Plate overlaps were resolved per pixel.** With near-equal heights the tie
-  went to crust age, which varies cell to cell, so the winner alternated and the
-  plate map shredded into thin interleaved slivers. The tie band is now sized to
-  something physically meaningful and broken by continuity — whoever held the
-  cell last iteration keeps it. Connected components of the plate map after 250
-  iterations at 512×512 drop from 137 to 82 (seed 12345) and 152 to 62 (seed
-  41833258).
+  lag 256 is +0.19, on a normal decaying autocorrelation curve; with a doubled
+  y sweep it is **+0.9999**.
+* **Regenerated sea floor gets height jitter.** Every cell uncovered by a moving
+  plate in one iteration shares an age, and the buoyancy pass turns age into
+  height. Without noise, each iteration's wake is a hard-edged iso-height band
+  trailing the plate — long straight streaks across the deep ocean. New crust
+  gets ±10% jitter, hashed from `(x, y, iteration)` rather than drawn from
+  `randsource`, so the random draw order is untouched.
+* **Plate overlaps resolve per region, not per pixel.** Where two overlapping
+  plates have near-equal height, breaking the tie by crust age shreds the plate
+  map into thin interleaved slivers, because age varies cell to cell. The tie
+  band is sized to the height noise and broken by continuity instead: whoever
+  held the cell last iteration keeps it. That takes the connected components of
+  the plate map after 250 iterations at 512×512 from 137 to 82 (seed 12345) and
+  152 to 62 (seed 41833258).
 
 Note the plate map records the *topmost* plate per cell, so a contiguous plate
 that dips under a neighbour legitimately shows as more than one patch.
@@ -118,9 +115,7 @@ that dips under a neighbour legitimately shows as more than one patch.
 
 The regression test (`platec/tests/test_regression.rs`) runs a full 600×400
 seed-12345 simulation to completion and compares heightmap statistics against
-recorded baselines. It keeps the shape of the C++ `test/test_regression.cpp`,
-but the baselines are this implementation's own — it guards our output against
-unintended change rather than checking fidelity to the original.
+recorded baselines, guarding against unintended change.
 
 The initial-state baselines are stable across platforms: the map is thresholded
 to a pair of constants and the sea-level search pins the land fraction, so the
@@ -130,21 +125,19 @@ come from macOS ARM64.
 
 ## Notable design decisions
 
-* **`SimpleRandom` is `Copy`** and passed by value in exactly the places the C++
-  passes it by value. `Movement`'s constructor in particular copies the
-  generator *before* drawing from the parameter, so `rot_dir` and the initial
-  angle consume the *same* random value — `test_movement.rs` pins this.
-* **The `plate ↔ Segments ↔ MySegmentCreator ↔ Bounds/HeightMap` pointer cycle**
-  in the C++ is replaced by a `SegmentCtx` borrow bundle passed into
-  `Segments::get_continent_at`, with segment creation as a free function. This
-  is the single largest structural deviation, and it is behaviour-preserving.
-* **`ASSERT` logs rather than aborts.** The C++ macro aborts in debug builds but
-  only logs in release — and the reference test suite is built in Release, where
-  several assertions legitimately fire on paths that then return `BAD_INDEX`.
-  Build with `--features strict_asserts` to make them fatal.
-* **Buffers are owned `Vec`s.** `Matrix::from_vec` replaces the C++
-  pointer-adopting constructor; `HeightMap`/`AgeMap`/`IndexMap` are aliases of
-  `Matrix<T>` as in the original.
+* **`SimpleRandom` is `Copy`** and deliberately passed by value in places where
+  the caller's generator must not be advanced. `Movement`'s constructor in
+  particular copies the generator *before* drawing from the parameter, so
+  `rot_dir` and the initial angle consume the *same* random value —
+  `test_movement.rs` pins this.
+* **Segment creation takes a `SegmentCtx`.** The bounds and height map it needs
+  are passed in explicitly rather than held as back-pointers from `Segments`,
+  which would make the ownership cyclic.
+* **`platec_assert!` logs rather than aborts.** Several assertions legitimately
+  fire on paths that then return `BAD_INDEX`. Build with
+  `--features strict_asserts` to make them fatal.
+* **Buffers are owned `Vec`s.** `HeightMap`, `AgeMap` and `IndexMap` are all
+  aliases of `Matrix<T>`.
 
 ## License
 

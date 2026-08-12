@@ -1,4 +1,4 @@
-//! Port of `src/plate.hpp` / `src/plate.cpp`.
+//! A single tectonic plate: its crust, its motion and its interactions.
 
 use crate::bounds::Bounds;
 use crate::geometry::{Dimension, FloatPoint, FloatVector, WorldDimension};
@@ -30,13 +30,13 @@ impl Plate {
     /// Initialise a plate with the supplied height map.
     ///
     /// * `m` — the height map of the terrain (ownership is taken, matching the
-    ///   pointer-adopting C++ constructor).
+    ///   buffer).
     /// * `w`, `h` — width and height of the height map in pixels.
     /// * `x`, `y` — position of the height map's left-top corner on the world map.
     ///
-    /// The C++ member initialisation order matters: `_randsource` is seeded
-    /// first and then passed **by value** to `Movement`, so the plate's own
-    /// generator is not advanced by the movement's two draws.
+    /// Initialisation order matters: the random source is seeded first and then
+    /// passed **by value** to `Movement`, so the plate's own generator is not
+    /// advanced by the movement's two draws.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         seed: u32,
@@ -49,9 +49,8 @@ impl Plate {
         world_dimension: WorldDimension,
     ) -> Self {
         let plate_area = w.wrapping_mul(h);
-        // The C++ `Matrix` adopts the caller's pointer and simply indexes the
-        // first `w * h` elements, so callers are free to hand over a larger
-        // buffer (`test_plate.cpp` does exactly that). Trim rather than assert.
+        // Only the first `w * h` elements are used, so callers are free to
+        // hand over a larger buffer. Trim rather than assert.
         let mut m = m;
         m.truncate(plate_area as usize);
         let randsource = SimpleRandom::new(seed);
@@ -272,7 +271,7 @@ impl Plate {
         }
     }
 
-    /// Visible for testing (as in the C++).
+    /// Visible for testing.
     pub fn calculate_crust(&self, x: u32, y: u32, index: u32) -> CrustNeighbours {
         calculate_crust(
             x,
@@ -564,7 +563,7 @@ impl Plate {
         (self.map.as_slice(), self.age_map.as_slice())
     }
 
-    /// Move the plate along its trajectory (C++ `plate::move`).
+    /// Move the plate along its trajectory.
     pub fn move_plate(&mut self) {
         self.movement.move_plate();
 
@@ -858,11 +857,11 @@ impl Plate {
     pub fn get_velocity(&self) -> f32 {
         self.movement.get_velocity()
     }
-    /// Deprecated in the C++ too; use [`MovementLike::velocity_unit_vector`].
+    /// Deprecated; use [`MovementLike::velocity_unit_vector`].
     pub fn get_vel_x(&self) -> f32 {
         self.movement.vel_x()
     }
-    /// Deprecated in the C++ too; use [`MovementLike::velocity_unit_vector`].
+    /// Deprecated; use [`MovementLike::velocity_unit_vector`].
     pub fn get_vel_y(&self) -> f32 {
         self.movement.vel_y()
     }
@@ -883,13 +882,13 @@ impl Plate {
     }
 
     /// Mutable access to the age map, needed by `lithosphere::restart` (which
-    /// uses `const_cast` for the same purpose in C++).
+    /// needs to mutate the segments).
     #[allow(dead_code)]
     pub(crate) fn age_map_mut(&mut self) -> &mut AgeMap {
         &mut self.age_map
     }
 
-    /// Visible for testing, as `plate::injectSegments` is in the C++.
+    /// Visible for testing.
     #[doc(hidden)]
     pub fn inject_segments(&mut self, segments: Box<dyn SegmentsApi + Send>) {
         self.segments = segments;
@@ -897,7 +896,7 @@ impl Plate {
 
     /// The continent ID at a world location, creating the segment lazily.
     ///
-    /// In the C++ the lazy creation lives inside `Segments::getContinentAt`,
+    /// The lazy creation lives inside `Segments::get_continent_at`,
     /// which reaches back into the plate through raw pointers. Here the pieces
     /// it needs are handed over explicitly.
     fn continent_id_at(&mut self, x: u32, y: u32) -> ContinentId {

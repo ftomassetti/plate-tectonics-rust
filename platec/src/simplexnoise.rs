@@ -1,10 +1,10 @@
-//! Port of `src/simplexnoise.hpp` / `src/simplexnoise.cpp`.
+//! Simplex noise in two, three and four dimensions.
 //!
 //! 2D, 3D and 4D Simplex Noise functions returning 'random' values in (-1, 1).
 //! The algorithm was originally designed by Ken Perlin; this code is adapted
 //! from Stefan Gustavson's implementation.
 //!
-//! Everything here is `f32`, matching the C++ exactly — widening any of it to
+//! Everything here is `f32` — widening any of it to
 //! `f64` would change the generated maps.
 
 use crate::simplexnoise_tables::{GRAD3, GRAD4, PERM, SIMPLEX};
@@ -527,8 +527,8 @@ fn dot4(g: &[i32; 4], x: f32, y: f32, z: f32, w: f32) -> f32 {
 /// Fill `map` with 4D simplex noise wrapped around a torus.
 ///
 /// `256 / seed` is **integer** division on a possibly negative `i32` — Rust and
-/// C++ both truncate towards zero, so this matches. A seed of exactly 0 divides
-/// by zero: undefined behaviour in C++, a panic here. The probability of the
+/// Integer division truncates towards zero. A seed of exactly 0 divides by
+/// zero and panics. The probability of the
 /// generator producing it is 2^-32.
 pub fn simplexnoise(seed: i32, map: &mut [f32], width: i32, height: i32, persistence: f32) -> i32 {
     let inv_width = 1.0 / width as f32;
@@ -536,10 +536,10 @@ pub fn simplexnoise(seed: i32, map: &mut [f32], width: i32, height: i32, persist
     let noise_scale = 0.593f32;
     let ka = (256 / seed) as f32;
     // int64 intermediates avoid overflow, then mod 256 (negative remainders are
-    // possible and intentional — Rust's `%` truncates like C++'s).
+    // possible and intentional).
     let kb = ((seed as i64 * 567) % 256) as f32;
     let kc = ((seed as i64 * seed as i64) % 256) as f32;
-    // `567 - seed` overflows `int` in C++ when seed is very negative (UB that
+    // `567 - seed` overflows `i32` when seed is very negative (which
     // wraps in practice); wrapping keeps the same result.
     let kd = (567i32.wrapping_sub(seed) % 256) as f32;
 

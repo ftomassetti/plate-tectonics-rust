@@ -1,9 +1,8 @@
-//! Port of `src/geometry.hpp` / `src/geometry.cpp`.
+//! Vectors, points and dimensions.
 
 use crate::platec_assert;
 use std::ops::{Mul, Sub};
 
-/// Port of `Platec::IntVector`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IntVector {
     x: i32,
@@ -21,7 +20,7 @@ impl IntVector {
         self.y
     }
     pub fn length(&self) -> f32 {
-        // C++: sqrtf((float)(_x * _x + _y * _y)) — the product is computed in int.
+        // The product is computed in integer arithmetic, then widened.
         ((self.x.wrapping_mul(self.x).wrapping_add(self.y.wrapping_mul(self.y))) as f32).sqrt()
     }
 }
@@ -33,7 +32,7 @@ impl Sub for IntVector {
     }
 }
 
-/// A point with int coordinates. Port of `IntPoint`.
+/// A point with integer coordinates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IntPoint {
     x: i32,
@@ -59,7 +58,6 @@ impl Sub for IntPoint {
     }
 }
 
-/// Port of `Platec::FloatVector`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FloatVector {
     x: f32,
@@ -111,7 +109,7 @@ impl Mul<f32> for FloatVector {
     }
 }
 
-/// A point with float coordinates. Port of `FloatPoint`.
+/// A point with float coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FloatPoint {
     x: f32,
@@ -133,7 +131,7 @@ impl FloatPoint {
     /// world if needed.
     ///
     /// Note the exact conditions: `> 0` (not `>= 0`) and `< world_width`, ported
-    /// verbatim from the C++.
+    /// deliberate.
     pub fn shift(&mut self, dx: f32, dy: f32, world_dimension: &WorldDimension) {
         let world_width = world_dimension.get_width() as f32;
         self.x += dx;
@@ -161,7 +159,7 @@ impl Sub for FloatPoint {
     }
 }
 
-/// Dimension of a Rectangle. Port of `Dimension`.
+/// Dimension of a rectangle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Dimension {
     width: u32,
@@ -196,7 +194,6 @@ impl Dimension {
     }
 }
 
-/// Port of `WorldDimension` (which derives from `Dimension` in C++).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WorldDimension {
     dim: Dimension,

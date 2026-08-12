@@ -1,5 +1,3 @@
-//! Port of `src/lithosphere.hpp` / `src/lithosphere.cpp`.
-//!
 //! The lithosphere is the rigid outermost shell of a rocky planet, divided into
 //! several rigid areas i.e. plates. As time passes the topography of the planet
 //! evolves as the result of plate dynamics. This class creates and manages all
@@ -29,7 +27,7 @@ const RESTART_SPEED_LIMIT: f32 = 2.0;
 const RESTART_ITERATIONS: u32 = 600;
 const NO_COLLISION_TIME_LIMIT: u32 = 10;
 
-/// The C++ `#define BOOL_REGENERATE_CRUST 1`.
+/// Whether divergent boundaries are refilled with new crust.
 const BOOL_REGENERATE_CRUST: u32 = 1;
 // The buoyancy sweep is folded into the regeneration sweep, which only covers
 // the whole map while this is 1.
@@ -55,18 +53,16 @@ const COMPACT_BOUNDS_MARGIN: u32 = COMPACT_BOUNDS_PERIOD;
 const REGEN_CRUST_NOISE: f32 = 0.10;
 
 /// Height difference below which two overlapping plates count as equally
-/// buoyant. The C++ uses `2 * f32::EPSILON` (~2.4e-7), far tighter than any
-/// physically meaningful difference at heights of order 0.1 to 1.0, so across a
-/// broad overlap the winner was effectively picked by crust-age noise. This is
-/// sized to the regenerated-crust jitter above, the dominant source of that
-/// noise.
+/// buoyant. Sized to the regenerated-crust jitter above, the dominant source of
+/// height noise: a tie band much tighter than that would let the winner across a
+/// broad overlap be decided by noise rather than by buoyancy.
 const BUOYANCY_TIE: f32 = REGEN_CRUST_NOISE * OCEANIC_BASE * BUOYANCY_BONUS_X;
 
 /// Deterministic per-cell jitter in [-1, 1).
 ///
 /// Hashed from the location and the iteration rather than drawn from
 /// `randsource`, so that adding it does not disturb the random draw order the
-/// rest of the port inherited from the C++.
+/// rest of the simulation depends on.
 fn cell_jitter(x: u32, y: u32, t: u32) -> f32 {
     let mut h = x
         .wrapping_mul(0x9E37_79B1)
@@ -79,7 +75,6 @@ fn cell_jitter(x: u32, y: u32, t: u32) -> f32 {
     ((h >> 8) as f32 / (1u32 << 24) as f32) * 2.0 - 1.0
 }
 
-/// Errors the C++ signals by throwing `std::runtime_error`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlatecError {
     InvalidDimensions(String),
@@ -553,9 +548,8 @@ impl Lithosphere {
     /// At least two plates are at the same location: move some crust from the
     /// SMALLER plate onto the LARGER one.
     ///
-    /// Note that the C++ passes `this_map` / `this_age` as live pointers into
-    /// plate `i`'s buffers, so values read after a `setCrust` call see the
-    /// updated data. Reading them freshly here preserves that.
+    /// The plate's height and age are re-read after every `set_crust` call
+    /// rather than cached, so that later reads see the updated values.
     #[allow(clippy::too_many_arguments)]
     fn resolve_juxtapositions(
         &mut self,
@@ -654,8 +648,8 @@ impl Lithosphere {
                 for _x in x0..x1 {
                     let k = (x_mod + y_width) as usize;
 
-                    // The read has to be fresh each time: `setCrust` below may
-                    // change it, and the C++ reads through a live pointer.
+                    // The read has to be fresh each time: `set_crust` below
+                    // may change it.
                     let this_map_j = self.plates[iu].get_map().0[j];
 
                     if this_map_j >= 2.0 * f32::EPSILON {
@@ -719,12 +713,12 @@ impl Lithosphere {
         let prev_timestamp = self.plates[owner as usize].get_crust_timestamp(x_mod, y_mod);
         let this_timestamp = self.plates[iu].get_map().1[j];
 
-        // Where two plates overlap with near-equal height, the C++ decides who
-        // subducts by crust age. Age varies from cell to cell across an overlap,
-        // so the winner alternates and the plate map comes out shredded into
-        // thin interleaved slivers of both plates. Decide by continuity instead:
-        // within the tie band, whoever held the cell last iteration keeps it, so
-        // an overlap resolves as one coherent region with a stable boundary.
+        // Where two plates overlap with near-equal height, deciding who
+        // subducts by crust age shreds the plate map: age varies from cell to
+        // cell across an overlap, so the winner alternates and the two plates
+        // come out interleaved in thin slivers. Decide by continuity instead —
+        // within the tie band, whoever held the cell last iteration keeps it —
+        // so an overlap resolves as one coherent region with a stable boundary.
         let prev_is_buoyant = if (self.hmap[k] - this_map_j).abs() <= BUOYANCY_TIE {
             if self.prev_imap[k] == owner {
                 true
@@ -839,7 +833,7 @@ impl Lithosphere {
         while (i as u32) < self.num_plates {
             let iu = i as usize;
             if self.num_plates == 1 {
-                // The C++ prints "ONLY ONE PLATE LEFT!" here every iteration.
+                // Only one plate left; there is nothing to remove.
             } else if self.plate_indices_found[iu] == 0 {
                 self.plates.swap_remove(iu);
                 self.plate_indices_found[iu] =

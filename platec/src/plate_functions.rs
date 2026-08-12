@@ -1,10 +1,10 @@
-//! Port of `src/plate_functions.hpp` / `src/plate_functions.cpp`.
+//! Crust sampling helpers shared by the erosion code.
 
 use crate::geometry::WorldDimension;
 use crate::heightmap::HeightMap;
 
 /// The neighbouring crust values and their map offsets, as computed by
-/// [`calculate_crust`]. The C++ returns these through ten out-parameters.
+/// [`calculate_crust`].
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CrustNeighbours {
     pub w_crust: f32,

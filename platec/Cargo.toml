@@ -3,7 +3,7 @@ name = "platec"
 version = "0.1.0"
 edition = "2021"
 license = "LGPL-2.1-or-later"
-description = "Plate tectonics simulation, ported from the C++ plate-tectonics library"
+description = "Plate tectonics simulation"
 
 [dependencies]
 rayon = { version = "1", optional = true }

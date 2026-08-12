@@ -1,4 +1,4 @@
-//! Port of `src/world_point.hpp` / `src/world_point.cpp`.
+//! A point on the world map.
 
 use crate::geometry::WorldDimension;
 use crate::platec_assert;

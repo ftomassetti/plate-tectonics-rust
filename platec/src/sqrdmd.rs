@@ -1,5 +1,4 @@
-//! Port of `src/sqrdmd.hpp` / `src/sqrdmd.cpp` — fractal height maps via the
-//! square-diamond algorithm.
+//! Fractal height maps via the square-diamond algorithm.
 //!
 //! Author of the original: Lauri Viitanen, 2011-08-09.
 //!
@@ -31,7 +30,7 @@ pub fn normalize(arr: &mut [f32]) {
     }
 }
 
-/// C++ `SAVE_SUM(a)`: store `sum` at `a` iff the truncated value there is zero.
+/// Store `sum` at `a` iff the truncated value there is zero.
 #[inline]
 fn save_sum(map: &mut [f32], a: i32, sum: f32) {
     let is_zero = map[a as usize] as i32 == 0;

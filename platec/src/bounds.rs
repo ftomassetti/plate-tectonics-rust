@@ -1,8 +1,6 @@
-//! Port of `src/bounds.hpp` / `src/bounds.cpp`.
+//! A plate's rectangle within the world, and the coordinate mapping it implies.
 //!
-//! The C++ `IBounds` interface exists only so that `plate` can have a bounds
-//! object injected; no test actually does so and `Bounds` is the sole
-//! implementor, so the trait is dropped here in favour of the concrete struct.
+//! Plate coordinates are local to this rectangle; world coordinates wrap.
 
 use crate::geometry::{Dimension, FloatPoint, WorldDimension};
 use crate::platec_assert;
@@ -69,8 +67,8 @@ impl Bounds {
         self.position.get_y() as u32
     }
 
-    /// Despite the name, the C++ computes `left + width - 1`, i.e. the last
-    /// point that *is* part of the plate. Preserved verbatim — the tests pin it.
+    /// Despite the name, this is `left + width - 1`, i.e. the last point that
+    /// *is* part of the plate. The tests pin it.
     pub fn right_as_uint_non_inclusive(&self) -> u32 {
         self.left_as_uint()
             .wrapping_add(self.width())

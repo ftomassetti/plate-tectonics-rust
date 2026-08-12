@@ -1,15 +1,14 @@
-//! Port of `test/test_acceptance.cpp`.
+//! Acceptance tests.
 //!
 //! These acceptance tests were originally derived by running platec (the
 //! original library); the goal was to refactor the code while obtaining the
-//! same results. **Both cases are commented out in the C++ source** because
+//! same results. **Both cases are disabled** because
 //! they are platform dependent — they only ever held on Linux/Travis. They are
 //! ported here as `#[ignore]`d tests so the expected values stay recorded and
 //! can be checked deliberately with `cargo test --release -- --ignored`.
 
-// The port is mechanical, and several lints fire on constructs kept verbatim
-// from the C++ for numerical fidelity (literal precision, `-1.0f * x`,
-// negated float comparisons, and so on).
+// Several lints fire on constructs kept deliberately for numerical fidelity
+// (literal precision, `-1.0 * x`, negated float comparisons, and so on).
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::manual_abs_diff)]
 #![allow(clippy::manual_is_multiple_of)]
@@ -27,7 +26,7 @@ fn sim() -> Simulation {
 }
 
 #[test]
-#[ignore = "platform dependent; disabled in the C++ source too"]
+#[ignore = "platform dependent"]
 fn platec_create_same_result_as_platec() {
     let p = sim();
     let heightmap = p.heightmap();
@@ -46,7 +45,7 @@ fn platec_create_same_result_as_platec() {
 }
 
 #[test]
-#[ignore = "platform dependent; disabled in the C++ source too"]
+#[ignore = "platform dependent"]
 fn platec_global_generation_same_result_as_platec() {
     let mut p = sim();
     while !p.is_finished() {

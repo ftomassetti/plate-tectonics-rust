@@ -1,12 +1,11 @@
-//! The noise-related cases from `test/test_plate.cpp` (`SimpleRandom.NextRepeatability`,
+//! Tests for the terrain noise (`SimpleRandom.NextRepeatability`,
 //! `Noise.SimplexRawNoiseRepeatability`, `Noise.SimplexNoiseRepeatability`).
 //!
 //! They live in their own file here so that the noise stack can be validated
 //! before `plate` exists.
 
-// The port is mechanical, and several lints fire on constructs kept verbatim
-// from the C++ for numerical fidelity (literal precision, `-1.0f * x`,
-// negated float comparisons, and so on).
+// Several lints fire on constructs kept deliberately for numerical fidelity
+// (literal precision, `-1.0 * x`, negated float comparisons, and so on).
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::manual_abs_diff)]
 #![allow(clippy::manual_is_multiple_of)]
@@ -22,7 +21,7 @@ use platec::noise::create_noise;
 use platec::simplerandom::SimpleRandom;
 use platec::simplexnoise::raw_noise_4d;
 
-/// Port of the `initializeHeightmapWithNoise` helper at the top of test_plate.cpp.
+/// Fill a height map with noise, as the plate tests do.
 pub fn initialize_heightmap_with_noise(seed: u32, heightmap: &mut [f32], wd: &WorldDimension) {
     create_noise(heightmap, wd, SimpleRandom::new(seed), true);
     for v in heightmap.iter_mut().take(wd.get_area() as usize) {

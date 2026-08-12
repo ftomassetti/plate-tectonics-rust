@@ -1,14 +1,14 @@
-//! Port of `src/simplerandom.hpp` / `src/simplerandom.cpp`.
+//! The simulation's random number generator.
 //!
 //! The Cong linear congruential generator from
 //! <https://github.com/cmcqueen/simplerandom>.
 //!
 //! This is the root of all reproducibility in the simulation: the exact draw
 //! order *and* the exact points at which the generator is **copied** determine
-//! the output. The C++ class has a copy constructor and is frequently passed
+//! the output. The generator is `Copy` and is frequently passed
 //! **by value** (see `Movement::Movement`, `lithosphere::createNoise`), which
 //! deliberately leaves the caller's generator un-advanced. `Copy` here models
-//! that faithfully — pass by value wherever the C++ does.
+//! by value; where it is, the caller's generator is deliberately not advanced.
 
 /// Cong LCG: `cong = 69069 * cong + 12345` (mod 2^32).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,7 +23,7 @@ impl SimpleRandom {
     }
 
     pub fn next(&mut self) -> u32 {
-        // Wrapping is load-bearing: the C++ relies on unsigned overflow here.
+        // Wrapping is load-bearing: this relies on unsigned overflow.
         self.cong = 69069u32.wrapping_mul(self.cong).wrapping_add(12345);
         self.cong
     }
@@ -37,7 +37,7 @@ impl SimpleRandom {
     /// Return a random value in [0.0, 1.0].
     pub fn next_float(&mut self) -> f32 {
         let n = self.next();
-        // `4294967295u32 as f32` rounds to 2^32, exactly as C++ `(float)maximum()` does.
+        // `4294967295u32 as f32` rounds to 2^32.
         n as f32 / self.maximum() as f32
     }
 

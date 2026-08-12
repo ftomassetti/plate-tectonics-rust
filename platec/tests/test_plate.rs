@@ -1,9 +1,8 @@
-//! Port of `test/test_plate.cpp` (the plate-specific cases; the RNG and noise
+//! Tests for a single tectonic plate.
 //! cases from that file live in `test_noise.rs`).
 
-// The port is mechanical, and several lints fire on constructs kept verbatim
-// from the C++ for numerical fidelity (literal precision, `-1.0f * x`,
-// negated float comparisons, and so on).
+// Several lints fire on constructs kept deliberately for numerical fidelity
+// (literal precision, `-1.0 * x`, negated float comparisons, and so on).
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::manual_abs_diff)]
 #![allow(clippy::manual_is_multiple_of)]
@@ -41,7 +40,7 @@ use platec::segment_data::{SegmentData, SegmentDataAccess, SegmentDataApi};
 use platec::segments::{ContinentId, SegmentCtx, SegmentsApi};
 use platec::simplerandom::SimpleRandom;
 
-/// Port of the `initializeHeightmapWithNoise` helper.
+/// Fill a height map with noise.
 fn initialize_heightmap_with_noise(seed: u32, heightmap: &mut [f32], wd: &WorldDimension) {
     create_noise(heightmap, wd, SimpleRandom::new(seed), true);
     for v in heightmap.iter_mut().take(wd.get_area() as usize) {
@@ -58,8 +57,7 @@ fn noisy_heightmap(seed: u32, wd: &WorldDimension) -> Vec<f32> {
 }
 
 // ---------------------------------------------------------------------------
-// Mocks. The C++ versions throw `runtime_error("Not implemented")` from the
-// methods a given test does not exercise; `unimplemented!()` is the equivalent.
+// Mocks. `unimplemented!()` marks the methods a given test does not exercise.
 // Fields the tests inspect after the mock has been moved into the plate are
 // held behind `Arc<SharedCell<_>>` so the test keeps a handle on them.
 // ---------------------------------------------------------------------------
@@ -123,7 +121,7 @@ impl SegmentDataApi for MockSegmentData {
     }
 }
 
-/// Port of the C++ `MockSegments`.
+/// A stand-in for a plate's segments.
 struct MockSegments {
     p: (u32, u32),
     id: Arc<SharedCell<ContinentId>>,
@@ -177,7 +175,7 @@ impl SegmentsApi for MockSegments {
     }
 }
 
-/// Port of the C++ `MockSegments2`.
+/// A stand-in that records the calls made to it.
 struct MockSegments2 {
     p: (u32, u32),
     id: Arc<SharedCell<ContinentId>>,

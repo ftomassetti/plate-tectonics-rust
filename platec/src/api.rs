@@ -1,9 +1,6 @@
-//! Safe replacement for `src/platecapi.hpp` / `src/platecapi.cpp`.
+//! The public simulation API.
 //!
-//! The C++ API is a `void*`-based C shim over `lithosphere`, plus a global
-//! registry of live lithospheres that exists only to support one legacy
-//! id-based age-map lookup. None of that is needed here, so [`Simulation`] is
-//! simply an owning handle with the same operations.
+//! [`Simulation`] is an owning handle around a [`Lithosphere`].
 
 use crate::geometry::WorldDimension;
 use crate::lithosphere::{Lithosphere, PlatecError};
@@ -15,7 +12,7 @@ pub struct Simulation {
 }
 
 impl Simulation {
-    /// Port of `platec_api_create`.
+    /// Create a simulation.
     #[allow(clippy::too_many_arguments)]
     pub fn create(
         seed: u32,
@@ -45,37 +42,37 @@ impl Simulation {
         })
     }
 
-    /// Port of `platec_api_step`: simulate one iteration.
+    /// Simulate one iteration.
     pub fn step(&mut self) {
         self.litho.update();
     }
 
-    /// Port of `platec_api_is_finished`.
+    /// Whether the simulation has run to completion.
     pub fn is_finished(&self) -> bool {
         self.litho.is_finished()
     }
 
-    /// Port of `platec_api_get_heightmap`.
+    /// The height of each cell of the world.
     pub fn heightmap(&self) -> &[f32] {
         self.litho.get_topography()
     }
 
-    /// Port of `platec_api_get_platesmap`.
+    /// The index of the plate owning each cell of the world.
     pub fn platesmap(&self) -> &[u32] {
         self.litho.get_plates_map()
     }
 
-    /// Port of `platec_api_get_agemap`.
+    /// The creation time of the crust in each cell of the world.
     pub fn agemap(&self) -> &[u32] {
         self.litho.get_age_map()
     }
 
-    /// Port of `lithosphere_getMapWidth`.
+    /// Width of the world in cells.
     pub fn width(&self) -> u32 {
         self.litho.get_width()
     }
 
-    /// Port of `lithosphere_getMapHeight`.
+    /// Height of the world in cells.
     pub fn height(&self) -> u32 {
         self.litho.get_height()
     }
@@ -100,7 +97,7 @@ impl Simulation {
         self.litho.get_plate(index)
     }
 
-    /// Ports `platec_api_velocity_unity_vector_x` / `_y`.
+    /// The unit velocity vector of the given plate.
     pub fn velocity_unit_vector(&self, plate_index: u32) -> (f32, f32) {
         let v = self.litho.get_plate(plate_index).velocity_unit_vector();
         (v.x(), v.y())

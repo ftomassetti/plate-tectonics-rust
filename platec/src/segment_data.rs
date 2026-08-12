@@ -1,8 +1,7 @@
-//! Port of `src/segment_data.hpp` / `src/segment_data.cpp`.
+//! Per-continent bookkeeping: area, collision count and bounding box.
 
 use crate::rectangle::Rectangle;
 
-/// Port of the C++ `ISegmentDataAccess`.
 pub trait SegmentDataAccess {
     fn get_left(&self) -> u32;
     fn get_right(&self) -> u32;
@@ -13,7 +12,6 @@ pub trait SegmentDataAccess {
     fn coll_count(&self) -> u32;
 }
 
-/// Port of the C++ `ISegmentData`.
 pub trait SegmentDataApi: SegmentDataAccess {
     fn inc_coll_count(&mut self);
     fn inc_area(&mut self);
@@ -54,7 +52,6 @@ impl SegmentData {
         self.rectangle.set_bottom(v);
     }
 
-    /// The C++ overload `incArea(uint32_t amount)`.
     pub fn inc_area_by(&mut self, amount: u32) {
         self.area = self.area.wrapping_add(amount);
     }

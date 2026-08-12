@@ -1,18 +1,11 @@
-//! Grown out of `test/test_regression.cpp`.
-//!
 //! Statistical comparison of heightmap data, to detect meaningful changes while
-//! tolerating minor floating-point differences across platforms. The structure
-//! is the C++ test's, but the baselines are our own: the simulation has since
-//! diverged from the C++ deliberately (see "Divergences from the C++" in the
-//! README), so this guards *our* output against unintended change rather than
-//! checking fidelity to the original.
+//! tolerating minor floating-point differences across platforms.
 //!
 //! This runs a full 600×400 simulation to completion, so it is slow in a debug
 //! build — run it with `cargo test --release`.
 
-// The port is mechanical, and several lints fire on constructs kept verbatim
-// from the C++ for numerical fidelity (literal precision, `-1.0f * x`,
-// negated float comparisons, and so on).
+// Several lints fire on constructs kept deliberately for numerical fidelity
+// (literal precision, `-1.0 * x`, negated float comparisons, and so on).
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::manual_abs_diff)]
 #![allow(clippy::manual_is_multiple_of)]
@@ -49,7 +42,7 @@ fn compute_stats(heightmap: &[f32]) -> HeightmapStats {
     let q25 = sorted_data[size / 4];
     let q75 = sorted_data[(3 * size) / 4];
 
-    // The C++ accumulates the mean and variance in `double`.
+    // Mean and variance accumulate in `f64`.
     let mut sum = 0.0f64;
     for &v in heightmap {
         sum += v as f64;

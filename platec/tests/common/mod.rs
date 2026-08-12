@@ -1,4 +1,4 @@
-//! Test helpers shared by the ported googletest suites.
+//! Test helpers shared by the test suites.
 #![allow(dead_code)]
 #![allow(unused_macros)]
 

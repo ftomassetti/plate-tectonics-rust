@@ -1,11 +1,7 @@
-//! Port of `src/heightmap.hpp`.
+//! The 2D buffer used for the height, age and plate-index maps.
 //!
-//! The C++ `Matrix<Value>` owns a raw `Value*` which it may either allocate
-//! itself or adopt from the caller. In Rust both cases collapse onto a `Vec`:
-//! [`Matrix::new`] allocates (zero-initialised — the C++ leaves it
-//! uninitialised, but every read is preceded by a `set_all`/`copy`), and
-//! [`Matrix::from_vec`] takes ownership of a caller-built buffer, replacing the
-//! pointer-adopting constructor used by `plate`.
+//! [`Matrix`] owns its buffer: [`Matrix::new`] allocates it zero-initialised,
+//! and [`Matrix::from_vec`] takes ownership of one the caller has built.
 
 use crate::platec_assert;
 use std::ops::{Index, IndexMut};
@@ -33,7 +29,7 @@ impl<T: Clone + Default> Matrix<T> {
 }
 
 impl<T: Clone> Matrix<T> {
-    /// Take ownership of an existing buffer (the C++ `Matrix(Value*, w, h)`).
+    /// Take ownership of an existing buffer.
     pub fn from_vec(data: Vec<T>, width: u32, height: u32) -> Self {
         platec_assert!(
             !data.is_empty() && width != 0 && height != 0,
@@ -53,7 +49,7 @@ impl<T: Clone> Matrix<T> {
         }
     }
 
-    /// Port of `Matrix::copy` — reallocates (and adopts the other's dimensions)
+    /// Reallocates (and adopts the other's dimensions)
     /// when the areas differ.
     pub fn copy_from(&mut self, other: &Matrix<T>) {
         if self.data.len() != other.data.len() {

@@ -28,7 +28,7 @@ let lastStepMs = 0;
 
 // --- Rendering ------------------------------------------------------------
 
-// The colour ramp of the C++ `examples/map_drawing.cpp`, keyed off quantiles of
+// Hypsometric colour ramp, keyed off quantiles of
 // the (normalised) height map.
 const TERRAIN_STOPS = [
   { q: 0.15, from: [0, 0, 255],     to: [0, 20, 200] },
@@ -59,7 +59,7 @@ function hslToRgb(h, s, l) {
 }
 
 /// Quantile thresholds via a 2048-bin histogram — a single extra pass, instead
-/// of the binary search the C++ uses per quantile.
+/// of a binary search per quantile.
 function quantileThresholds(values, min, max, qs) {
   const BINS = 2048;
   const hist = new Uint32Array(BINS);

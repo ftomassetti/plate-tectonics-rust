@@ -1,10 +1,9 @@
-//! Port of `src/segments.hpp` / `src/segments.cpp`.
+//! The continents within a plate: the continent id of each cell of
+//! continental crust, plus the per-continent data.
 //!
-//! Structural deviation from the C++: `Segments` there holds raw back-pointers
-//! to an `ISegmentCreator` and an `IBounds`, which in turn hold references back
-//! to the plate's height map and to the segments themselves — an ownership
-//! cycle Rust will not express. Instead the pieces `getContinentAt` needs are
-//! passed in explicitly as a [`SegmentCtx`] borrowed from the owning `plate`.
+//! The state that continent lookup needs from its owning plate — the bounds
+//! and the height map — is passed in explicitly as a [`SegmentCtx`] rather than
+//! held as back-pointers, which would make the ownership cyclic.
 
 use crate::bounds::Bounds;
 use crate::geometry::WorldDimension;
@@ -15,16 +14,14 @@ use crate::segment_data::{SegmentData, SegmentDataApi};
 
 pub type ContinentId = u32;
 
-/// The plate-owned state that segment creation reads. Replaces the C++
-/// `_bounds` / `_segmentCreator` back-pointers.
+/// The plate-owned state that segment creation reads.
 pub struct SegmentCtx<'a> {
     pub bounds: &'a Bounds,
     pub map: &'a HeightMap,
     pub world_dimension: &'a WorldDimension,
 }
 
-/// Port of the C++ `ISegments`. `plate` holds one of these behind a `Box` so
-/// that tests can inject mocks (as `plate::injectSegments` does in C++).
+/// A plate holds one of these behind a `Box` so that tests can inject mocks.
 pub trait SegmentsApi {
     fn area(&self) -> u32;
     fn reset(&mut self);
@@ -47,9 +44,8 @@ pub struct Segments {
     segment: Vec<ContinentId>,
     /// Should be the same as the bounds area of the plate.
     area: u32,
-    /// Span buffers reused by `create_segment`. The C++ keeps these as `static`
-    /// vectors for exactly this reason; owning them here keeps the flood fill
-    /// allocation-free after the first call.
+    /// Span buffers reused by `create_segment`, so that a fill allocates
+    /// nothing after the first call.
     scratch: SpanScratch,
 }
 
@@ -57,7 +53,7 @@ impl Segments {
     pub fn new(plate_area: u32) -> Self {
         Self {
             seg_data: Vec::new(),
-            // C++ memsets to 255, i.e. every word becomes 0xFFFFFFFF.
+            // No cell belongs to a continent yet.
             segment: vec![u32::MAX; plate_area as usize],
             area: plate_area,
             scratch: SpanScratch::default(),
@@ -147,9 +143,8 @@ impl SegmentsApi for Segments {
         let mut seg = self.id(index);
 
         if seg >= self.size() {
-            // We consider this call const in the C++ because it computes
-            // something that would be computed anyway — the segments act as a
-            // sort of cache.
+            // The segments act as a cache: this computes something that
+            // would have to be computed anyway.
             seg = create_segment(lx, ly, ctx, self);
         }
 

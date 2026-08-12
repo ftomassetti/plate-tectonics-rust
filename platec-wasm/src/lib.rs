@@ -1,12 +1,12 @@
 //! WebAssembly bindings for the `platec` plate tectonics simulation.
 //!
-//! The API mirrors the C++ `platecapi` shim: create a simulation, step it one
+//! Create a simulation, step it one
 //! iteration at a time, and read the height/plate maps between steps. That
 //! step-wise shape is what lets the browser demo render the simulation as it
 //! progresses.
 
 // The port is mechanical, and several lints fire on constructs kept verbatim
-// from the C++ for numerical fidelity (literal precision, `-1.0f * x`,
+// for numerical fidelity (literal precision, `-1.0 * x`,
 // negated float comparisons, and so on).
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::manual_abs_diff)]
@@ -30,7 +30,7 @@ pub struct Simulation {
 
 #[wasm_bindgen]
 impl Simulation {
-    /// Create a simulation. Mirrors `platec_api_create`.
+    /// Create a simulation.
     #[wasm_bindgen(constructor)]
     #[allow(clippy::too_many_arguments)]
     pub fn new(

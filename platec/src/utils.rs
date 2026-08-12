@@ -1,19 +1,18 @@
-//! Port of `src/utils.hpp` / `src/utils.cpp`.
+//! The assertion macro and shared constants.
 //!
 //! plate-tectonics, a plate tectonics simulation library
 //! Copyright (C) 2012-2013 Lauri Viitanen
 //! Copyright (C) 2014-2015 Federico Tomassetti, Bret Curtis
 //! Licensed under the GNU LGPL v2.1 or later.
 
-/// The C++ code defines `PI 3.14159265358979323846264338327950288f`, i.e. the
+/// The double-precision literal rounded to `f32`, i.e. the
 /// `f32`-rounded value of pi. `std::f32::consts::PI` is bit-identical to it.
 pub const PI: f32 = std::f32::consts::PI;
 
-/// Port of the C++ `ASSERT(condition, message)` macro.
+/// Assertion that logs rather than aborting.
 ///
-/// The C++ debug build prints and calls `exit(1)`; the release build (with
-/// `LOG_ASSERTS`, which is enabled unconditionally in `utils.hpp`) only prints
-/// and carries on. The reference C++ test suite is built in Release, so the
+/// Several assertions legitimately fire on paths that then return
+/// `BAD_INDEX`, so the
 /// behaviour these assertions are *validated against* is log-and-continue —
 /// several of them (e.g. in `Rectangle::getMapIndex`) legitimately fire on
 /// paths that then return `BAD_INDEX`. We therefore always log rather than
@@ -37,7 +36,7 @@ macro_rules! platec_assert {
     };
 }
 
-/// Assertion logging (the `LOG_ASSERTS` branch of the C++ macro).
+/// Assertion logging.
 #[doc(hidden)]
 pub fn log_assert_failure(cond: &str, file: &str, line: u32, msg: impl std::fmt::Display) {
     #[cfg(not(target_arch = "wasm32"))]

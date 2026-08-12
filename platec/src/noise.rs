@@ -1,8 +1,7 @@
-//! Port of `src/noise.hpp` / `src/noise.cpp`.
+//! Terrain noise generation.
 //!
-//! Both entry points take the generator **by value**, exactly as the C++ does:
-//! the caller's generator is deliberately left un-advanced, and `lithosphere`
-//! depends on that.
+//! Both entry points take the generator **by value**: the caller's generator is
+//! deliberately left un-advanced, and `lithosphere` depends on that.
 
 use crate::geometry::WorldDimension;
 use crate::simplerandom::SimpleRandom;
@@ -29,8 +28,7 @@ pub fn create_slow_noise(map: &mut [f32], tmp_dim: &WorldDimension, mut randsour
     let noise_scale = 0.593f32;
     let ka = (256 / seed) as f32;
     let kb = (seed * 567 % 256) as f32;
-    // `seed * seed` overflows int64_t for seeds above ~3.03e9 — undefined
-    // behaviour in C++ that wraps in practice, so wrap explicitly.
+    // `seed * seed` overflows i64 for seeds above ~3.03e9; wrap explicitly.
     let kc = (seed.wrapping_mul(seed) % 256) as f32;
     let kd = ((567 - seed) % 256) as f32;
 
@@ -39,9 +37,9 @@ pub fn create_slow_noise(map: &mut [f32], tmp_dim: &WorldDimension, mut randsour
             // The offsets define a circle each; a full circle is two pi radians,
             // and one full circle across the axis is what makes the result tile.
             //
-            // The C++ sweeps y over *four* pi, i.e. two full circles, so its
-            // noise has period height/2 and the bottom half of every world comes
-            // out a near-copy of the top half. One sweep per axis here.
+            // One sweep per axis. Two sweeps on y would give the noise a period
+            // of height/2, making the bottom half of every world a near-copy of
+            // the top half.
             let f_nx = x as f32 / width as f32;
             let f_ny = y as f32 / height as f32;
             let f_rdx = f_nx * 2.0 * PI;

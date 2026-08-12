@@ -1,11 +1,10 @@
-//! Port of `test/test_heightmap.cpp`.
+//! Tests for the 2D map buffer.
 //!
-//! The commented-out `IndexedAccessOperatorFromWorldPoint` case in the C++ is
+//! The `IndexedAccessOperatorFromWorldPoint` case is
 //! not ported (it was never enabled).
 
-// The port is mechanical, and several lints fire on constructs kept verbatim
-// from the C++ for numerical fidelity (literal precision, `-1.0f * x`,
-// negated float comparisons, and so on).
+// Several lints fire on constructs kept deliberately for numerical fidelity
+// (literal precision, `-1.0 * x`, negated float comparisons, and so on).
 #![allow(clippy::excessive_precision)]
 #![allow(clippy::manual_abs_diff)]
 #![allow(clippy::manual_is_multiple_of)]
@@ -62,7 +61,7 @@ fn heightmap_copy_constructor() {
 #[test]
 fn heightmap_assignment_operator() {
     let hm = filled();
-    // The C++ assignment operator reallocates when the areas differ, adopting
+    // Assignment reallocates when the areas differ, adopting
     // the source's dimensions.
     let mut hm2 = HeightMap::new(10, 10);
     hm2.copy_from(&hm);
