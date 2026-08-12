@@ -131,6 +131,21 @@ impl Bounds {
         );
     }
 
+    /// Shrink towards the bottom right: drop `dx` columns from the left and
+    /// `dy` rows from the top, then resize to `width` x `height`.
+    ///
+    /// The inverse of [`Bounds::grow`], which only ever expands. Used to refit a
+    /// plate's rectangle to the crust it actually holds.
+    pub fn compact(&mut self, dx: u32, dy: u32, width: u32, height: u32) {
+        platec_assert!(
+            dx + width <= self.dimension.get_width() && dy + height <= self.dimension.get_height(),
+            "Compacted bounds must fit inside the current ones"
+        );
+        let world = self.world_dimension;
+        self.position.shift(dx as f32, dy as f32, &world);
+        self.dimension = Dimension::new(width, height);
+    }
+
     /// Return a rectangle representing the bounds inside the world.
     fn as_rect(&self) -> Rectangle {
         let ilft = self.left_as_uint();

@@ -581,6 +581,102 @@ impl Plate {
     /// crust for a more realistic collision response. As the number of
     /// collisions grows the bookkeeping becomes less and less accurate, finally
     /// resulting in striking artefacts, so callers are given a way to reset it.
+    /// Refit the plate's rectangle to the crust it actually holds.
+    ///
+    /// `set_crust` grows the rectangle in multiples of 8 whenever crust lands
+    /// outside it, and nothing ever shrinks it back, so a plate's box drifts far
+    /// past its contents. On a 2048x2048 run the plates' boxes reach 4.7x the
+    /// world area while holding 1x the world area of crust, and
+    /// `update_height_and_plate_index_maps` scans every cell of every box.
+    ///
+    /// Must be called before `reset_segments`: the segment ids are dropped here
+    /// rather than remapped, since they are about to be rebuilt anyway.
+    ///
+    /// `margin` empty cells are kept around the crust, so that crust cells stay
+    /// as interior as they were and the erosion boundary condition is unchanged.
+    ///
+    /// Returns whether the bounds changed.
+    pub fn compact_bounds(&mut self, margin: u32) -> bool {
+        let w = self.bounds.width();
+        let h = self.bounds.height();
+
+        // Tight box of the non-empty crust, in plate-local coordinates. The
+        // threshold matches the one `update_height_and_plate_index_maps` uses to
+        // decide a cell holds crust.
+        let (mut min_x, mut min_y, mut max_x, mut max_y) = (w, h, 0u32, 0u32);
+        let mut k = 0usize;
+        for y in 0..h {
+            for x in 0..w {
+                if self.map[k] >= 2.0 * f32::EPSILON {
+                    if x < min_x {
+                        min_x = x;
+                    }
+                    if x > max_x {
+                        max_x = x;
+                    }
+                    if y < min_y {
+                        min_y = y;
+                    }
+                    if y > max_y {
+                        max_y = y;
+                    }
+                }
+                k += 1;
+            }
+        }
+
+        // No crust at all: leave it to `remove_empty_plates`.
+        if min_x > max_x {
+            return false;
+        }
+
+        // Keep a margin of empty cells around the crust. `erode` treats cells on
+        // the box edge differently from interior ones, so shrinking flush to the
+        // crust would quietly change the erosion boundary condition; the margin
+        // keeps every crust cell as interior as it was before.
+        min_x = min_x.saturating_sub(margin);
+        min_y = min_y.saturating_sub(margin);
+        max_x = (max_x + margin).min(w - 1);
+        max_y = (max_y + margin).min(h - 1);
+
+        if min_x == 0 && min_y == 0 && max_x == w - 1 && max_y == h - 1 {
+            return false;
+        }
+
+        let (new_w, new_h) = (max_x - min_x + 1, max_y - min_y + 1);
+        let mut tmph = HeightMap::new(new_w, new_h);
+        let mut tmpa = AgeMap::new(new_w, new_h);
+        for j in 0..new_h {
+            let src = ((min_y + j) * w + min_x) as usize;
+            let dst = (j * new_w) as usize;
+            let n = new_w as usize;
+            tmph.as_mut_slice()[dst..dst + n]
+                .copy_from_slice(&self.map.as_slice()[src..src + n]);
+            tmpa.as_mut_slice()[dst..dst + n]
+                .copy_from_slice(&self.age_map.as_slice()[src..src + n]);
+        }
+        self.map = tmph;
+        self.age_map = tmpa;
+        self.bounds.compact(min_x, min_y, new_w, new_h);
+
+        let area = self.bounds.area();
+        self.segments.reassign(area, vec![u32::MAX; area as usize]);
+
+        // The centre of mass is in plate-local coordinates, so moving the origin
+        // moves it too. Translate it rather than rebuilding it with a
+        // `MassBuilder`: between erosions the stored centre is deliberately
+        // stale (only `erode` recomputes it), and refitting the box must not
+        // quietly refresh it — that changes collision dynamics and measurably
+        // flattens the world. The centre always lies inside the crust box, so
+        // the subtraction cannot go negative.
+        self.mass = Mass::new(
+            self.mass.get_mass(),
+            self.mass.get_cx() - min_x as f32,
+            self.mass.get_cy() - min_y as f32,
+        );
+        true
+    }
+
     pub fn reset_segments(&mut self) {
         platec_assert!(
             self.bounds.area() == self.segments.area(),

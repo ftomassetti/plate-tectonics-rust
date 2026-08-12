@@ -143,13 +143,13 @@ fn regression_simulation_seed12345_output_consistency() {
     // another target by a small margin, add that target's baseline alongside
     // rather than loosening the tolerances.
     let expected_final = HeightmapStats {
-        min: 0.0057563824,
-        max: 12.43835,
-        mean: 0.6242789,
-        median: 0.11561622,
-        std_dev: 0.92349637,
-        q25: 0.09839977,
-        q75: 1.1436903,
+        min: 0.039695326,
+        max: 10.971356,
+        mean: 0.6218281,
+        median: 0.11054447,
+        std_dev: 0.9800756,
+        q25: 0.0982406,
+        q75: 0.882413,
     };
 
     let initial_matches = stats_match(

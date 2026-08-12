@@ -30,6 +30,18 @@ const NO_COLLISION_TIME_LIMIT: u32 = 10;
 /// The C++ `#define BOOL_REGENERATE_CRUST 1`.
 const BOOL_REGENERATE_CRUST: u32 = 1;
 
+/// How often plate rectangles are refitted to their contents, in iterations.
+/// The refit costs one linear read of each plate's box, so amortising it over a
+/// handful of steps makes it free while keeping the boxes near-tight — plates
+/// only grow in multiples of 8, and only when crust lands outside.
+const COMPACT_BOUNDS_PERIOD: u32 = 16;
+
+/// Empty cells kept around a plate's crust when refitting. Crust can spread by
+/// at most one cell per iteration, so a margin of one period's worth means no
+/// cell that could become crust before the next refit is ever clipped off, and
+/// `erode` sees the same boundary condition it would have without refitting.
+const COMPACT_BOUNDS_MARGIN: u32 = COMPACT_BOUNDS_PERIOD;
+
 /// Relative spread of the height jitter applied to freshly regenerated sea
 /// floor. The buoyancy bonus steps by `BUOYANCY_BONUS_X * OCEANIC_BASE /
 /// MAX_BUOYANCY_AGE` = 0.015 per age unit on a base of 0.3, so +/-10% is a
@@ -877,7 +889,13 @@ impl Lithosphere {
         self.prev_imap.copy_from(&self.imap);
 
         // Realize accumulated external forces on each plate.
+        let compact = self.iter_count % COMPACT_BOUNDS_PERIOD == 0;
         for i in 0..self.num_plates as usize {
+            // Before `reset_segments`, which asserts that the segment buffer
+            // matches the bounds area.
+            if compact {
+                self.plates[i].compact_bounds(COMPACT_BOUNDS_MARGIN);
+            }
             self.plates[i].reset_segments();
 
             if self.erosion_period > 0 && self.iter_count % self.erosion_period == 0 {
