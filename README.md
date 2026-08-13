@@ -126,6 +126,55 @@ that is easy to reintroduce.
 Note the plate map records the *topmost* plate per cell, so a contiguous plate
 that dips under a neighbour legitimately shows as more than one patch.
 
+### Plate reorganisation
+
+A cycle ends by discarding the plates and re-partitioning the world. Done
+naively this shreds continents: the old code seeded plates uniformly at random
+and grew them isotropically, so a new boundary was as likely to run down the
+middle of a craton as along a coastline, and the halves were then pulled apart.
+The damage was concentrated in the ~30 iterations after each restart — one seed
+went from a single continent holding 92% of all land to the largest holding 50%
+in 28 steps, where the preceding 430 iterations had cost it almost nothing.
+
+Four changes address it, and `examples/render.rs` measures the result:
+
+```sh
+cargo run --release --example render -p platec -- /tmp/worlds 12345 777 40001
+```
+
+* **Plates grow around continents, not through them.** `grow_plates` is a
+  multi-source Dijkstra where entering continental crust costs about ten times
+  what ocean does, and more again with thickness. Fronts race around landmasses
+  and meet in the ocean, so a continent is usually claimed whole by whichever
+  plate reaches it first.
+* **Seeds prefer ocean.** Selection redraws up to 8 times looking for oceanic
+  crust, because rifts nucleate in thin, weak lithosphere.
+* **Cratons are not cut.** Continental crust older than 200 iterations costs 200
+  to cross, so a front goes the long way round.
+* **Cycles end on assembly, not on a clock.** Once the largest landmass has held
+  90% of all land for 150 iterations, the supercontinent has settled and rifts
+  apart. Previously the dominant trigger was a bare 600-iteration cap; the one
+  condition with a geological reading never fired at all.
+* **Plate geometry carries over.** Each plate seeds the next cycle from one of
+  its own oceanic cells, and only two plates are reseeded fresh.
+
+Mean over eight seeds at 512×512, run to completion:
+
+| stage | landmasses | largest landmass | land |
+|-------|-----------|------------------|------|
+| before | 5.6 | 64.2% | 23.5% |
+| + cost-weighted growth, ocean seeds | 6.4 | 77.8% | 22.6% |
+| + cratons | 5.5 | 72.5% | 22.1% |
+| + Wilson cycle | 4.9 | 74.0% | 22.6% |
+| + carried-over geometry | 4.5 | 76.4% | 21.1% |
+
+Eight seeds is the minimum worth trusting here. Individual commit messages quote
+three-seed figures measured as each change went in, and several of those do not
+survive the wider sample — cratons look like a clear coherence win at three
+seeds and roughly neutral at eight, and carried-over geometry looks like a clear
+regression at three and a modest gain at eight. The table above is the one to
+believe.
+
 ## Reproducibility
 
 The regression test (`platec/tests/test_regression.rs`) runs a full 600×400
