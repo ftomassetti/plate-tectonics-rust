@@ -11,7 +11,7 @@ use crate::platec_assert;
 use crate::simplerandom::SimpleRandom;
 use crate::world_point::WorldPoint;
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, VecDeque};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -28,6 +28,18 @@ const RESTART_ENERGY_RATIO: f32 = 0.15;
 const RESTART_SPEED_LIMIT: f32 = 2.0;
 const RESTART_ITERATIONS: u32 = 600;
 const NO_COLLISION_TIME_LIMIT: u32 = 10;
+
+/// A cycle also ends once the continents have gathered into a supercontinent
+/// and *stayed* gathered — the Wilson cycle, where heat trapped under the
+/// assembled mass eventually rifts it apart again.
+///
+/// Being assembled is not enough on its own: land sits at 77-95% in the largest
+/// mass for most of a run, so the share alone does not discriminate. The dwell
+/// requirement is what makes this mean "assembled and settled" rather than
+/// "assembled in passing".
+const SUPERCONTINENT_SHARE: f32 = 0.90;
+const SUPERCONTINENT_DWELL: u32 = 150;
+const SUPERCONTINENT_CHECK_PERIOD: u32 = 20;
 
 /// Cost of a plate front advancing one cell through oceanic crust. Thin and
 /// weak, so fronts race across it.
@@ -209,6 +221,63 @@ pub struct Lithosphere {
     world_dimension: WorldDimension,
     randsource: SimpleRandom,
     steps: i32,
+
+    /// Scratch for the supercontinent check, kept so it does not reallocate.
+    landmass_seen: Vec<bool>,
+    landmass_queue: VecDeque<u32>,
+    /// Consecutive supercontinent checks that came back assembled.
+    assembled_checks: u32,
+}
+
+/// Share of all land held by the largest connected landmass, 4-connected on the
+/// toroidal world. Zero when there is no land at all.
+fn largest_landmass_share(
+    hmap: &HeightMap,
+    dim: &WorldDimension,
+    seen: &mut [bool],
+    queue: &mut VecDeque<u32>,
+) -> f32 {
+    let (w, h) = (dim.get_width() as usize, dim.get_height() as usize);
+    seen.iter_mut().for_each(|v| *v = false);
+
+    let mut land = 0usize;
+    for i in 0..w * h {
+        if hmap[i] >= CONTINENTAL_BASE {
+            land += 1;
+        }
+    }
+    if land == 0 {
+        return 0.0;
+    }
+
+    let mut best = 0usize;
+    for start in 0..w * h {
+        if seen[start] || hmap[start] < CONTINENTAL_BASE {
+            continue;
+        }
+        seen[start] = true;
+        queue.clear();
+        queue.push_back(start as u32);
+        let mut n = 0usize;
+        while let Some(c) = queue.pop_front() {
+            n += 1;
+            let (x, y) = (c as usize % w, c as usize / w);
+            for (nx, ny) in [
+                ((x + 1) % w, y),
+                ((x + w - 1) % w, y),
+                (x, (y + 1) % h),
+                (x, (y + h - 1) % h),
+            ] {
+                let m = ny * w + nx;
+                if !seen[m] && hmap[m] >= CONTINENTAL_BASE {
+                    seen[m] = true;
+                    queue.push_back(m as u32);
+                }
+            }
+        }
+        best = best.max(n);
+    }
+    best as f32 / land as f32
 }
 
 /// Two simultaneous mutable borrows out of the plate vector, needed by
@@ -277,6 +346,9 @@ impl Lithosphere {
             world_dimension,
             randsource: SimpleRandom::new(seed),
             steps: 0,
+            landmass_seen: vec![false; world_dimension.get_area() as usize],
+            landmass_queue: VecDeque::new(),
+            assembled_checks: 0,
         };
 
         let tmp_dim = WorldDimension::new(width + 1, height + 1);
@@ -437,6 +509,7 @@ impl Lithosphere {
         }
 
         self.iter_count = self.num_plates + MAX_BUOYANCY_AGE;
+        self.assembled_checks = 0;
         self.peak_ek = 0.0;
         self.last_coll_count = 0;
     }
@@ -924,6 +997,24 @@ impl Lithosphere {
             self.peak_ek = system_kinetic_energy;
         }
 
+        // Sampled rather than computed every step: it is a whole-map flood fill,
+        // and assembly happens over hundreds of iterations.
+        if self.iter_count % SUPERCONTINENT_CHECK_PERIOD == 0 {
+            let share = largest_landmass_share(
+                &self.hmap,
+                &self.world_dimension,
+                &mut self.landmass_seen,
+                &mut self.landmass_queue,
+            );
+            if share >= SUPERCONTINENT_SHARE {
+                self.assembled_checks += 1;
+            } else {
+                self.assembled_checks = 0;
+            }
+        }
+        let supercontinent =
+            self.assembled_checks * SUPERCONTINENT_CHECK_PERIOD >= SUPERCONTINENT_DWELL;
+
         // If there have been no continental collisions during past iterations
         // then interesting activity has ceased and we should restart. Also if
         // the simulation has been going on for too long already, restart,
@@ -931,6 +1022,7 @@ impl Lithosphere {
         if total_velocity < RESTART_SPEED_LIMIT
             || system_kinetic_energy / self.peak_ek < RESTART_ENERGY_RATIO
             || self.last_coll_count > NO_COLLISION_TIME_LIMIT
+            || supercontinent
             || self.iter_count > RESTART_ITERATIONS
         {
             self.restart();
