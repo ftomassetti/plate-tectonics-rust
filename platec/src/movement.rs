@@ -8,6 +8,11 @@ use crate::utils::PI;
 
 /// Height limit that separates seas from dry land.
 pub const CONT_BASE: f32 = 1.0;
+/// Angular velocity of a plate's rotation about its Euler pole, in radians per
+/// iteration, before per-plate variation of 0.5x to 1.5x. Sized so a plate
+/// turns a few tens of degrees over a supercontinent cycle.
+const PLATE_TURN_RATE: f32 = 0.0011;
+
 pub const INITIAL_SPEED_X: f32 = 1.0;
 pub const DEFORMATION_WEIGHT: f32 = 2.0;
 
@@ -28,17 +33,17 @@ impl<T: MassLike + MovementLike> PlateLike for T {}
 #[derive(Clone, Debug)]
 pub struct Movement {
     randsource: SimpleRandom,
-    world_dimension: WorldDimension,
     /// Plate's velocity.
     velocity: f32,
     /// Direction of rotation: 1 = CCW, -1 = clockwise.
-    rot_dir: f32,
     /// X and Y components of the plate's acceleration vector.
     dx: f32,
     dy: f32,
     /// X and Y components of the plate's direction unit vector.
     vx: f32,
     vy: f32,
+    /// Signed angular velocity of this plate's rotation, radians per iteration.
+    omega: f32,
 }
 
 impl Movement {
@@ -56,20 +61,27 @@ impl Movement {
     /// angle consume the **same** underlying random value. The caller's
     /// generator is untouched, and the stored member ends up advanced by
     /// exactly one draw. `test_movement` pins this exactly.
-    pub fn new(randsource: SimpleRandom, world_dimension: WorldDimension) -> Self {
+    /// The world dimension is no longer used: the turn rate is an absolute
+    /// angular velocity rather than one scaled by the size of the map, exactly
+    /// as `velocity` is an absolute number of cells per iteration. The
+    /// parameter is kept so that callers do not have to change.
+    pub fn new(randsource: SimpleRandom, _world_dimension: WorldDimension) -> Self {
         let mut member = randsource;
         let mut param = randsource;
         let rot_dir = if param.next() % 2 != 0 { 1.0f32 } else { -1.0f32 };
+        // Each plate turns at its own steady rate, redrawn whenever plates are
+        // rebuilt — which is once per reorganisation, so direction changes are
+        // episodic rather than a single unending curve.
+        let omega = rot_dir * PLATE_TURN_RATE * (0.5 + param.next_float());
         let angle = 2.0f32 * PI * member.next_float();
         Self {
             randsource: member,
-            world_dimension,
             velocity: 1.0,
-            rot_dir,
             dx: 0.0,
             dy: 0.0,
             vx: angle.cos() * INITIAL_SPEED_X,
             vy: angle.sin() * INITIAL_SPEED_X,
+            omega,
         }
     }
 
@@ -111,15 +123,17 @@ impl Movement {
         // Round negative values to zero.
         self.velocity *= if self.velocity > 0.0 { 1.0 } else { 0.0 };
 
-        // Apply some circular motion to the plate. Force the radius of the
-        // circle to remain fixed by adjusting angular velocity (which depends
-        // on the plate's velocity).
-        let world_avg_side =
-            (self.world_dimension.get_width() + self.world_dimension.get_height()) / 2;
-        let alpha = self.rot_dir * self.velocity / (world_avg_side as f32 * 0.33);
-        let alpha_vel = alpha * self.velocity;
-        let cos = alpha_vel.cos();
-        let sin = alpha_vel.sin();
+        // Plate motion is a rotation about an Euler pole, so trajectories curve
+        // rather than running straight. The angular velocity is what belongs to
+        // the plate; the radius of the arc follows from it as `v / omega`, so a
+        // faster plate — one further from its pole — sweeps a wider arc.
+        //
+        // Turning by `omega * velocity` instead, as the radius were being held
+        // fixed, inverts that: it makes fast plates turn tighter. It also turned
+        // them far too far, a median of 112 degrees per cycle against the ~60
+        // of the Hawaii-Emperor bend, Earth's most dramatic recorded change.
+        let cos = self.omega.cos();
+        let sin = self.omega.sin();
         let vx = self.vx * cos - self.vy * sin;
         let vy = self.vy * cos + self.vx * sin;
         self.vx = vx;

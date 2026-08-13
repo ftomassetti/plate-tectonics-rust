@@ -65,9 +65,11 @@ fn movement_move() {
     expect_float_eq!(-0.95583719f32, mov.vel_y());
     expect_float_eq!(1.0f32, mov.get_velocity());
 
+    // One step turns the plate by its own angular velocity, which is drawn per
+    // plate and does not depend on how fast it is going.
     mov.move_plate();
-    expect_float_eq!(-0.28745356f32, mov.vel_x());
-    expect_float_eq!(-0.95779467f32, mov.vel_y());
+    expect_float_eq!(-0.29271513f32, mov.vel_x());
+    expect_float_eq!(-0.95619971f32, mov.vel_y());
     expect_float_eq!(1.0f32, mov.get_velocity());
 }
 
