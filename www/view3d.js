@@ -178,9 +178,11 @@ function norm(v) {
   return [v[0] / l, v[1] / l, v[2] / l];
 }
 
-/// The grid is capped so that a 2048-wide world does not ask for 4M vertices;
-/// the height texture stays full resolution either way.
-const MAX_GRID = 512;
+/// The grid is capped so that a 4096-wide world does not ask for 8M vertices;
+/// the height texture stays full resolution either way. 1024 along the long
+/// axis is about half a million vertices, which is what zooming in needs before
+/// the geometry starts to look faceted.
+const MAX_GRID = 1024;
 
 export function createTerrainView3D(canvas) {
   const gl = canvas.getContext('webgl2', { antialias: true, depth: true });
@@ -298,7 +300,7 @@ export function createTerrainView3D(canvas) {
       camera.distance * cp * Math.cos(camera.yaw),
     ];
     const view = lookAt(eye, [0, 0, 0], [0, 1, 0]);
-    const proj = perspective(45, canvas.width / canvas.height, 0.05, 50);
+    const proj = perspective(45, canvas.width / canvas.height, 0.01, 60);
 
     gl.useProgram(program);
     gl.uniformMatrix4fv(loc.mvp, false, multiply(proj, view));
@@ -346,7 +348,9 @@ export function createTerrainView3D(canvas) {
   canvas.addEventListener('pointercancel', endDrag);
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    camera.distance = Math.min(9, Math.max(1.1, camera.distance * (1 + Math.sign(e.deltaY) * 0.1)));
+    // Wide range: the map is two units across, so getting close enough to read
+    // a coastline means going well under one.
+    camera.distance = Math.min(24, Math.max(0.12, camera.distance * (1 + Math.sign(e.deltaY) * 0.12)));
     redraw();
   }, { passive: false });
 
