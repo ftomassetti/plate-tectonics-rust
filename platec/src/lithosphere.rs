@@ -41,6 +41,12 @@ const SUPERCONTINENT_SHARE: f32 = 0.90;
 const SUPERCONTINENT_DWELL: u32 = 150;
 const SUPERCONTINENT_CHECK_PERIOD: u32 = 20;
 
+/// How many plates are replaced with fresh seeds at a reorganisation. The rest
+/// keep a seed inside their existing territory, so the partition carries over
+/// instead of being redrawn from scratch: real reorganisations rift one plate
+/// and merge a couple of others, they do not renumber the planet.
+const PLATES_RESEEDED_PER_CYCLE: u32 = 2;
+
 /// Cost of a plate front advancing one cell through oceanic crust. Thin and
 /// weak, so fronts race across it.
 const GROWTH_COST_OCEAN: u32 = 1;
@@ -417,6 +423,12 @@ impl Lithosphere {
     /// Split the current topography into the given number of (rigid) plates.
     /// Any previous set of plates is discarded.
     pub fn create_plates(&mut self) {
+        self.create_plates_from(&[]);
+    }
+
+    /// Split the topography into plates, reusing `carry` as the origins of the
+    /// first plates where it is non-empty.
+    pub fn create_plates_from(&mut self, carry: &[u32]) {
         let map_area = self.world_dimension.get_area();
         self.num_plates = self.max_plates;
 
@@ -426,6 +438,21 @@ impl Lithosphere {
 
         // Select N plate centers from the global map.
         for i in 0..self.num_plates {
+            if let Some(&seed) = carry.get(i as usize) {
+                if let Some(pos) = candidates.iter().position(|&c| c == seed) {
+                    candidates.swap_remove(pos);
+                    let area = &mut self.plate_areas[i as usize];
+                    area.lft = self.world_dimension.x_from_index(seed);
+                    area.rgt = area.lft;
+                    area.top = self.world_dimension.y_from_index(seed);
+                    area.btm = area.top;
+                    area.wdt = 1;
+                    area.hgt = 1;
+                    area.border.clear();
+                    area.border.push(seed);
+                    continue;
+                }
+            }
             // Redraw a few times looking for oceanic crust. Continental crust
             // is thick and strong: new spreading centres open in the ocean, so
             // seeding uniformly puts rifts through the middle of continents.
@@ -512,6 +539,41 @@ impl Lithosphere {
         self.assembled_checks = 0;
         self.peak_ek = 0.0;
         self.last_coll_count = 0;
+    }
+
+    /// One oceanic cell from each current plate, to reseed the next cycle with.
+    ///
+    /// Reusing them means the new partition resembles the old one rather than
+    /// being redrawn from scratch, so plate geometry carries across a
+    /// reorganisation. A couple of plates are dropped so there is still real
+    /// reorganisation: their territory is contested afresh.
+    ///
+    /// The representative is a reservoir sample, so it is a uniformly random
+    /// oceanic cell of the plate without a second pass.
+    fn carry_over_seeds(&mut self) -> Vec<u32> {
+        let n = self.num_plates as usize;
+        let mut rep = vec![u32::MAX; n];
+        let mut count = vec![0u32; n];
+
+        for c in 0..self.world_dimension.get_area() {
+            let owner = self.imap[c];
+            if owner >= self.num_plates || self.hmap[c as usize] >= CONTINENTAL_BASE {
+                continue;
+            }
+            let o = owner as usize;
+            count[o] += 1;
+            if self.randsource.next() % count[o] == 0 {
+                rep[o] = c;
+            }
+        }
+
+        for _ in 0..PLATES_RESEEDED_PER_CYCLE.min(self.num_plates) {
+            let k = (self.randsource.next() % self.num_plates) as usize;
+            rep[k] = u32::MAX;
+        }
+
+        rep.retain(|&r| r != u32::MAX);
+        rep
     }
 
     /// Cost for a plate front to advance into the given cell.
@@ -1256,13 +1318,17 @@ impl Lithosphere {
             }
         }
 
+        // Sampled before the plates are cleared, while `imap` still holds the
+        // outgoing ownership.
+        let carry = self.carry_over_seeds();
+
         // Clear the plate array.
         self.clear_plates();
 
         // Create new plates IFF there are cycles left to run! However, if the
         // max cycle count is "ETERNITY" then 0 < 0 + 1 always.
         if self.cycle_count < self.max_cycles + u32::from(self.max_cycles == 0) {
-            self.create_plates();
+            self.create_plates_from(&carry);
 
             // Restore the ages of the plates' points of crust!
             for i in 0..self.num_plates as usize {
