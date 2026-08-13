@@ -47,6 +47,11 @@ const SUPERCONTINENT_CHECK_PERIOD: u32 = 20;
 /// and merge a couple of others, they do not renumber the planet.
 const PLATES_RESEEDED_PER_CYCLE: u32 = 2;
 
+/// Growth costs are scaled by this so that integer arithmetic can carry the
+/// root-two cost of a diagonal step.
+const GROWTH_COST_SCALE: u32 = 100;
+/// Cost of a diagonal step, relative to `GROWTH_COST_SCALE`.
+const GROWTH_COST_DIAGONAL: u32 = 141;
 /// Cost of a plate front advancing one cell through oceanic crust. Thin and
 /// weak, so fronts race across it.
 const GROWTH_COST_OCEAN: u32 = 1;
@@ -576,17 +581,19 @@ impl Lithosphere {
         rep
     }
 
-    /// Cost for a plate front to advance into the given cell.
+    /// Cost for a plate front to advance into the given cell, scaled by
+    /// [`GROWTH_COST_SCALE`].
     fn growth_cost(&self, index: usize) -> u32 {
         let h = self.hmap[index];
-        if h < CONTINENTAL_BASE {
-            return GROWTH_COST_OCEAN;
-        }
-        if self.iter_count.wrapping_sub(self.amap[index]) >= CRATON_AGE {
-            return GROWTH_COST_CRATON;
-        }
-        let extra = ((h - CONTINENTAL_BASE) * GROWTH_COST_PER_THICKNESS) as u32;
-        (GROWTH_COST_LAND + extra).min(GROWTH_COST_MAX)
+        let base = if h < CONTINENTAL_BASE {
+            GROWTH_COST_OCEAN
+        } else if self.iter_count.wrapping_sub(self.amap[index]) >= CRATON_AGE {
+            GROWTH_COST_CRATON
+        } else {
+            let extra = ((h - CONTINENTAL_BASE) * GROWTH_COST_PER_THICKNESS) as u32;
+            (GROWTH_COST_LAND + extra).min(GROWTH_COST_MAX)
+        };
+        base * GROWTH_COST_SCALE
     }
 
     /// "Grow" plates from their origins until the surface is fully populated.
@@ -632,13 +639,24 @@ impl Lithosphere {
             let top = if cy > 0 { cy - 1 } else { world_height - 1 };
             let btm = if cy < world_height - 1 { cy + 1 } else { 0 };
 
-            let n = top * world_width + cx; // North.
-            let s = btm * world_width + cx; // South.
-            let w = cy * world_width + lft; // West.
-            let e = cy * world_width + rgt; // East.
+            // Eight-connected, with the diagonal charged root two. A
+            // four-connected search measures Manhattan distance, whose
+            // iso-distance contours are diamonds, and the plate boundaries
+            // inherit those flat facets.
+            let neighbours = [
+                (cx, top, GROWTH_COST_SCALE),
+                (cx, btm, GROWTH_COST_SCALE),
+                (lft, cy, GROWTH_COST_SCALE),
+                (rgt, cy, GROWTH_COST_SCALE),
+                (lft, top, GROWTH_COST_DIAGONAL),
+                (rgt, top, GROWTH_COST_DIAGONAL),
+                (lft, btm, GROWTH_COST_DIAGONAL),
+                (rgt, btm, GROWTH_COST_DIAGONAL),
+            ];
 
-            for &(cell, dir) in &[(n, 0u8), (s, 1), (w, 2), (e, 3)] {
-                let next = cost + self.growth_cost(cell as usize);
+            for (nx, ny, step) in neighbours {
+                let cell = ny * world_width + nx;
+                let next = cost + self.growth_cost(cell as usize) * step / GROWTH_COST_SCALE;
                 if next >= best[cell as usize] {
                     continue;
                 }
@@ -646,35 +664,24 @@ impl Lithosphere {
                 self.imap[cell] = i;
                 heap.push(Reverse((next, cell, i)));
 
-                // Extend the plate's bounding box. A newly claimed cell is
-                // 4-adjacent to one already inside the box, so it is at most one
-                // row or column beyond an edge.
+                // Extend the plate's bounding box. A diagonal step can be one
+                // beyond the edge on both axes, so both are checked.
                 let area = &mut self.plate_areas[i as usize];
-                match dir {
-                    0 => {
-                        if area.top == self.world_dimension.y_mod(top + 1) {
-                            area.top = top;
-                            area.hgt += 1;
-                        }
-                    }
-                    1 => {
-                        if btm == self.world_dimension.y_mod(area.btm + 1) {
-                            area.btm = btm;
-                            area.hgt += 1;
-                        }
-                    }
-                    2 => {
-                        if area.lft == self.world_dimension.x_mod(lft + 1) {
-                            area.lft = lft;
-                            area.wdt += 1;
-                        }
-                    }
-                    _ => {
-                        if rgt == self.world_dimension.x_mod(area.rgt + 1) {
-                            area.rgt = rgt;
-                            area.wdt += 1;
-                        }
-                    }
+                if area.top == self.world_dimension.y_mod(ny + 1) {
+                    area.top = ny;
+                    area.hgt += 1;
+                }
+                if ny == self.world_dimension.y_mod(area.btm + 1) {
+                    area.btm = ny;
+                    area.hgt += 1;
+                }
+                if area.lft == self.world_dimension.x_mod(nx + 1) {
+                    area.lft = nx;
+                    area.wdt += 1;
+                }
+                if nx == self.world_dimension.x_mod(area.rgt + 1) {
+                    area.rgt = nx;
+                    area.wdt += 1;
                 }
             }
         }
