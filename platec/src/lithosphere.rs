@@ -10,6 +10,8 @@ use crate::plate::Plate;
 use crate::platec_assert;
 use crate::simplerandom::SimpleRandom;
 use crate::world_point::WorldPoint;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -26,6 +28,23 @@ const RESTART_ENERGY_RATIO: f32 = 0.15;
 const RESTART_SPEED_LIMIT: f32 = 2.0;
 const RESTART_ITERATIONS: u32 = 600;
 const NO_COLLISION_TIME_LIMIT: u32 = 10;
+
+/// Cost of a plate front advancing one cell through oceanic crust. Thin and
+/// weak, so fronts race across it.
+const GROWTH_COST_OCEAN: u32 = 1;
+
+/// Cost of advancing one cell into continental crust, plus a further
+/// [`GROWTH_COST_PER_THICKNESS`] per unit of crust above `CONTINENTAL_BASE`.
+/// Fronts crawl across continents, so a landmass is usually claimed whole by
+/// whichever plate reaches it first and boundaries settle in the ocean.
+const GROWTH_COST_LAND: u32 = 10;
+const GROWTH_COST_PER_THICKNESS: f32 = 6.0;
+const GROWTH_COST_MAX: u32 = 40;
+
+/// How many times seed selection will redraw looking for oceanic crust before
+/// accepting whatever it has. Rifts nucleate in thin, weak lithosphere; they do
+/// not open through the middle of a craton.
+const SEED_OCEAN_ATTEMPTS: u32 = 8;
 
 /// Whether divergent boundaries are refilled with new crust.
 const BOOL_REGENERATE_CRUST: u32 = 1;
@@ -318,16 +337,26 @@ impl Lithosphere {
         let map_area = self.world_dimension.get_area();
         self.num_plates = self.max_plates;
 
-        // Initialise the "free plate center position" lookup table. This way
-        // two plate centers will never be identical.
-        for i in 0..map_area {
-            self.imap[i] = i;
-        }
+        // Candidate origins, drawn without replacement so that two plate
+        // centres are never identical.
+        let mut candidates: Vec<u32> = (0..map_area).collect();
 
         // Select N plate centers from the global map.
         for i in 0..self.num_plates {
-            // Randomly select an unused plate origin.
-            let p = self.imap[self.randsource.next() % (map_area - i)];
+            // Redraw a few times looking for oceanic crust. Continental crust
+            // is thick and strong: new spreading centres open in the ocean, so
+            // seeding uniformly puts rifts through the middle of continents.
+            let mut pick = 0usize;
+            let mut p = 0u32;
+            for _ in 0..SEED_OCEAN_ATTEMPTS {
+                pick = (self.randsource.next() % candidates.len() as u32) as usize;
+                p = candidates[pick];
+                if self.hmap[p as usize] < CONTINENTAL_BASE {
+                    break;
+                }
+            }
+            candidates.swap_remove(pick);
+
             let y = self.world_dimension.y_from_index(p);
             let x = self.world_dimension.x_from_index(p);
 
@@ -341,9 +370,6 @@ impl Lithosphere {
 
             area.border.clear();
             area.border.push(p); // ...and mark it as border.
-
-            // Overwrite the used entry with the last unused entry in the array.
-            self.imap[p] = self.imap[map_area - i - 1];
         }
 
         self.imap.set_all(0xFFFF_FFFF);
@@ -404,89 +430,104 @@ impl Lithosphere {
         self.last_coll_count = 0;
     }
 
+    /// Cost for a plate front to advance into the given cell.
+    fn growth_cost(&self, index: usize) -> u32 {
+        let h = self.hmap[index];
+        if h < CONTINENTAL_BASE {
+            GROWTH_COST_OCEAN
+        } else {
+            let extra = ((h - CONTINENTAL_BASE) * GROWTH_COST_PER_THICKNESS) as u32;
+            (GROWTH_COST_LAND + extra).min(GROWTH_COST_MAX)
+        }
+    }
+
     /// "Grow" plates from their origins until the surface is fully populated.
+    ///
+    /// A multi-source Dijkstra rather than an isotropic flood fill: each front
+    /// advances by cheapest accumulated cost, and crossing continental crust
+    /// costs roughly ten times what crossing ocean does. Fronts therefore race
+    /// around continents through the ocean and meet there, so a landmass is
+    /// usually claimed whole by whichever plate reaches it first instead of
+    /// being cut down the middle by an arbitrary boundary.
+    ///
+    /// Continents still split when two seeds land inside the same landmass,
+    /// which is the intended rare case — real continents do rift apart.
     fn grow_plates(&mut self) {
         let world_width = self.world_dimension.get_width();
         let world_height = self.world_dimension.get_height();
-        let mut max_border = 1u32;
+        let map_area = self.world_dimension.get_area() as usize;
 
-        while max_border != 0 {
-            max_border = 0;
-            for i in 0..self.num_plates {
-                let n_border = self.plate_areas[i as usize].border.len() as u32;
-                max_border = if max_border > n_border {
-                    max_border
-                } else {
-                    n_border
-                };
+        let mut best = vec![u32::MAX; map_area];
+        // (accumulated cost, cell, plate) — Reverse turns the max-heap into a
+        // min-heap, and the tuple order makes ties deterministic.
+        let mut heap: BinaryHeap<Reverse<(u32, u32, u32)>> = BinaryHeap::new();
 
-                if n_border == 0 {
+        for i in 0..self.num_plates {
+            let seed = self.plate_areas[i as usize].border[0];
+            if best[seed as usize] == u32::MAX {
+                best[seed as usize] = 0;
+                self.imap[seed] = i;
+                heap.push(Reverse((0, seed, i)));
+            }
+        }
+
+        while let Some(Reverse((cost, p, i))) = heap.pop() {
+            if cost > best[p as usize] {
+                continue; // Superseded by a cheaper route.
+            }
+
+            let cy = self.world_dimension.y_from_index(p);
+            let cx = self.world_dimension.x_from_index(p);
+
+            let lft = if cx > 0 { cx - 1 } else { world_width - 1 };
+            let rgt = if cx < world_width - 1 { cx + 1 } else { 0 };
+            let top = if cy > 0 { cy - 1 } else { world_height - 1 };
+            let btm = if cy < world_height - 1 { cy + 1 } else { 0 };
+
+            let n = top * world_width + cx; // North.
+            let s = btm * world_width + cx; // South.
+            let w = cy * world_width + lft; // West.
+            let e = cy * world_width + rgt; // East.
+
+            for &(cell, dir) in &[(n, 0u8), (s, 1), (w, 2), (e, 3)] {
+                let next = cost + self.growth_cost(cell as usize);
+                if next >= best[cell as usize] {
                     continue;
                 }
-                let j = (self.randsource.next() % n_border) as usize;
-                let p = self.plate_areas[i as usize].border[j];
-                let cy = self.world_dimension.y_from_index(p);
-                let cx = self.world_dimension.x_from_index(p);
+                best[cell as usize] = next;
+                self.imap[cell] = i;
+                heap.push(Reverse((next, cell, i)));
 
-                let lft = if cx > 0 { cx - 1 } else { world_width - 1 };
-                let rgt = if cx < world_width - 1 { cx + 1 } else { 0 };
-                let top = if cy > 0 { cy - 1 } else { world_height - 1 };
-                let btm = if cy < world_height - 1 { cy + 1 } else { 0 };
-
-                let n = top * world_width + cx; // North.
-                let s = btm * world_width + cx; // South.
-                let w = cy * world_width + lft; // West.
-                let e = cy * world_width + rgt; // East.
-
-                if self.imap[n] >= self.num_plates {
-                    self.imap[n] = i;
-                    let area = &mut self.plate_areas[i as usize];
-                    area.border.push(n);
-
-                    if area.top == self.world_dimension.y_mod(top + 1) {
-                        area.top = top;
-                        area.hgt += 1;
-                    }
-                }
-
-                if self.imap[s] >= self.num_plates {
-                    self.imap[s] = i;
-                    let area = &mut self.plate_areas[i as usize];
-                    area.border.push(s);
-
-                    if btm == self.world_dimension.y_mod(area.btm + 1) {
-                        area.btm = btm;
-                        area.hgt += 1;
-                    }
-                }
-
-                if self.imap[w] >= self.num_plates {
-                    self.imap[w] = i;
-                    let area = &mut self.plate_areas[i as usize];
-                    area.border.push(w);
-
-                    if area.lft == self.world_dimension.x_mod(lft + 1) {
-                        area.lft = lft;
-                        area.wdt += 1;
-                    }
-                }
-
-                if self.imap[e] >= self.num_plates {
-                    self.imap[e] = i;
-                    let area = &mut self.plate_areas[i as usize];
-                    area.border.push(e);
-
-                    if rgt == self.world_dimension.x_mod(area.rgt + 1) {
-                        area.rgt = rgt;
-                        area.wdt += 1;
-                    }
-                }
-
-                // Overwrite the processed point with an unprocessed one.
+                // Extend the plate's bounding box. A newly claimed cell is
+                // 4-adjacent to one already inside the box, so it is at most one
+                // row or column beyond an edge.
                 let area = &mut self.plate_areas[i as usize];
-                let last = *area.border.last().unwrap();
-                area.border[j] = last;
-                area.border.pop();
+                match dir {
+                    0 => {
+                        if area.top == self.world_dimension.y_mod(top + 1) {
+                            area.top = top;
+                            area.hgt += 1;
+                        }
+                    }
+                    1 => {
+                        if btm == self.world_dimension.y_mod(area.btm + 1) {
+                            area.btm = btm;
+                            area.hgt += 1;
+                        }
+                    }
+                    2 => {
+                        if area.lft == self.world_dimension.x_mod(lft + 1) {
+                            area.lft = lft;
+                            area.wdt += 1;
+                        }
+                    }
+                    _ => {
+                        if rgt == self.world_dimension.x_mod(area.rgt + 1) {
+                            area.rgt = rgt;
+                            area.wdt += 1;
+                        }
+                    }
+                }
             }
         }
     }
