@@ -41,6 +41,17 @@ const GROWTH_COST_LAND: u32 = 10;
 const GROWTH_COST_PER_THICKNESS: f32 = 6.0;
 const GROWTH_COST_MAX: u32 = 40;
 
+/// Continental crust older than this counts as cratonic: the ancient, cold,
+/// thick cores that on Earth survive intact through several supercontinent
+/// cycles. `iter_count` restarts each cycle while `amap` does not, so crust
+/// carried over from an earlier cycle wraps to a huge age — which is exactly
+/// the "very old" answer we want.
+const CRATON_AGE: u32 = 200;
+
+/// Cost of advancing into a craton. Not infinite, so growth always terminates,
+/// but high enough that a front will go the long way round rather than cut one.
+const GROWTH_COST_CRATON: u32 = 200;
+
 /// How many times seed selection will redraw looking for oceanic crust before
 /// accepting whatever it has. Rifts nucleate in thin, weak lithosphere; they do
 /// not open through the middle of a craton.
@@ -434,11 +445,13 @@ impl Lithosphere {
     fn growth_cost(&self, index: usize) -> u32 {
         let h = self.hmap[index];
         if h < CONTINENTAL_BASE {
-            GROWTH_COST_OCEAN
-        } else {
-            let extra = ((h - CONTINENTAL_BASE) * GROWTH_COST_PER_THICKNESS) as u32;
-            (GROWTH_COST_LAND + extra).min(GROWTH_COST_MAX)
+            return GROWTH_COST_OCEAN;
         }
+        if self.iter_count.wrapping_sub(self.amap[index]) >= CRATON_AGE {
+            return GROWTH_COST_CRATON;
+        }
+        let extra = ((h - CONTINENTAL_BASE) * GROWTH_COST_PER_THICKNESS) as u32;
+        (GROWTH_COST_LAND + extra).min(GROWTH_COST_MAX)
     }
 
     /// "Grow" plates from their origins until the surface is fully populated.
