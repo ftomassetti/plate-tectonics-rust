@@ -98,7 +98,11 @@
     position: relative;
     display: flex;
     justify-content: center;
+    /* Not `stretch`, which would pull the 2D map off its square aspect. */
+    align-items: center;
   }
+  /* `display: block` below would otherwise beat the UA rule for [hidden]. */
+  canvas[hidden] { display: none; }
   canvas {
     display: block;
     image-rendering: pixelated;
@@ -112,6 +116,20 @@
   .status { color: var(--muted); font-size: 13px; min-height: 20px; }
   .status.error { color: #ff8080; }
   code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+  /* The 3D view fills the viewer area and is smooth-scaled, unlike the
+     pixel-exact 2D maps. */
+  #canvas3d {
+    image-rendering: auto;
+    width: 100%;
+    max-width: 100%;
+    height: min(70vh, 620px);
+    max-height: calc(100vh - 190px);
+    cursor: grab;
+    touch-action: none;
+  }
+  #canvas3d:active { cursor: grabbing; }
+  #exagLabel input { width: 120px; }
+  .hint { color: var(--muted); font-size: 12px; opacity: .75; }
 </style>
 </head>
 <body>
@@ -169,12 +187,27 @@
           <option value="gray">Grayscale height</option>
           <option value="plates">Plate map</option>
           <option value="age">Crust age</option>
+          <option value="terrain3d">Terrain (3D)</option>
         </select>
       </label>
-      <label><input type="checkbox" id="overlay"> Plate boundaries</label>
-      <label><input type="checkbox" id="arrows"> Velocity arrows</label>
+      <label id="overlayLabel"><input type="checkbox" id="overlay"> Plate boundaries</label>
+      <label id="arrowsLabel"><input type="checkbox" id="arrows"> Velocity arrows</label>
+      <label id="exagLabel" hidden>Relief
+        <input id="exag" type="range" min="0.005" max="0.12" step="0.005" value="0.022">
+      </label>
+      <label id="spinLabel" hidden><input type="checkbox" id="spin"> Auto-rotate</label>
+      <label id="paletteLabel">Colours
+        <select id="palette">
+          <option value="natural">Natural</option>
+          <option value="hypsometric">Hypsometric</option>
+        </select>
+      </label>
+      <span id="hint3d" class="hint" hidden>drag to rotate · scroll to zoom</span>
     </div>
-    <div class="canvas-wrap"><canvas id="canvas" width="512" height="512"></canvas></div>
+    <div class="canvas-wrap">
+      <canvas id="canvas" width="512" height="512"></canvas>
+      <canvas id="canvas3d" hidden></canvas>
+    </div>
     <div class="status" id="status">Loading WebAssembly module…</div>
   </div>
 </main>

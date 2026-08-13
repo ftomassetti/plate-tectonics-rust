@@ -4,6 +4,7 @@
 // step, so the world can be watched as it forms.
 
 import init, { Simulation } from './pkg/platec_wasm.js';
+import { createTerrainView3D } from './view3d.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -16,6 +17,9 @@ const els = {
   statIter: $('statIter'), statCycle: $('statCycle'), statPlates: $('statPlates'), statMs: $('statMs'),
   mode: $('mode'), overlay: $('overlay'), arrows: $('arrows'),
   canvas: $('canvas'), status: $('status'),
+  canvas3d: $('canvas3d'), exag: $('exag'), spin: $('spin'), palette: $('palette'),
+  overlayLabel: $('overlayLabel'), arrowsLabel: $('arrowsLabel'), exagLabel: $('exagLabel'),
+  spinLabel: $('spinLabel'), hint3d: $('hint3d'), paletteLabel: $('paletteLabel'),
 };
 
 const ctx = els.canvas.getContext('2d');
@@ -25,20 +29,45 @@ let sim = null;       // the live Simulation
 let running = false;
 let imageData = null;
 let lastStepMs = 0;
+let view3d = null;      // lazily created, and null if WebGL2 is unavailable
+let view3dFailed = false;
 
 // --- Rendering ------------------------------------------------------------
 
-// Hypsometric colour ramp, keyed off quantiles of
-// the (normalised) height map.
-const TERRAIN_STOPS = [
-  { q: 0.15, from: [0, 0, 255],     to: [0, 20, 200] },
-  { q: 0.70, from: [0, 20, 200],    to: [50, 80, 225] },
-  { q: 0.75, from: [50, 80, 225],   to: [135, 237, 235] },
-  { q: 0.90, from: [88, 173, 49],   to: [218, 226, 58] },
-  { q: 0.95, from: [218, 226, 58],  to: [251, 252, 42] },
-  { q: 0.99, from: [251, 252, 42],  to: [91, 28, 13] },
-  { q: 1.00, from: [91, 28, 13],    to: [51, 0, 4] },
-];
+// Hypsometric colour ramps, keyed off quantiles of the (normalised) height map.
+// Each band interpolates `from` -> `to` between the previous threshold and its
+// own; the jump between the sea band and the first land band is what draws the
+// coastline.
+const PALETTES = {
+  // Naturalistic: desaturated enough that shading reads on top of it, with a
+  // snow line at the very top. The default.
+  natural: [
+    { q: 0.15, from: [6, 32, 60],    to: [10, 47, 82] },
+    { q: 0.70, from: [10, 47, 82],   to: [29, 95, 138] },
+    { q: 0.75, from: [29, 95, 138],  to: [134, 201, 208] },
+    { q: 0.90, from: [79, 122, 58],  to: [143, 154, 78] },
+    { q: 0.95, from: [143, 154, 78], to: [169, 128, 63] },
+    { q: 0.99, from: [169, 128, 63], to: [107, 74, 51] },
+    { q: 1.00, from: [107, 74, 51],  to: [236, 231, 226] },
+  ],
+  // The demo's original ramp: high-saturation, no snow line.
+  hypsometric: [
+    { q: 0.15, from: [0, 0, 255],     to: [0, 20, 200] },
+    { q: 0.70, from: [0, 20, 200],    to: [50, 80, 225] },
+    { q: 0.75, from: [50, 80, 225],   to: [135, 237, 235] },
+    { q: 0.90, from: [88, 173, 49],   to: [218, 226, 58] },
+    { q: 0.95, from: [218, 226, 58],  to: [251, 252, 42] },
+    { q: 0.99, from: [251, 252, 42],  to: [91, 28, 13] },
+    { q: 1.00, from: [91, 28, 13],    to: [51, 0, 4] },
+  ],
+};
+
+let TERRAIN_STOPS = PALETTES.natural;
+
+// Crust at or above this height counts as land; the 3D view measures relief
+// from here rather than from the frame's minimum, so the terrain does not
+// bob up and down as the extremes change.
+const CONTINENTAL_BASE = 1.0;
 
 // A stable palette for plate indices.
 const PLATE_COLORS = [];
@@ -204,6 +233,21 @@ function drawArrows(imap, w, h, plateCount) {
   ctx.restore();
 }
 
+/// Show the canvas the current mode draws into, and only the controls that
+/// apply to it.
+function syncViewChrome() {
+  const is3d = els.mode.value === 'terrain3d';
+  els.canvas.hidden = is3d;
+  els.canvas3d.hidden = !is3d;
+  els.overlayLabel.hidden = is3d;
+  els.arrowsLabel.hidden = is3d;
+  els.exagLabel.hidden = !is3d;
+  els.spinLabel.hidden = !is3d;
+  els.hint3d.hidden = !is3d;
+  // The ramp drives both terrain views, and only those.
+  els.paletteLabel.hidden = !(is3d || els.mode.value === 'terrain');
+}
+
 function render() {
   if (!sim) return;
   const w = sim.width();
@@ -217,6 +261,40 @@ function render() {
 
   const px = imageData.data;
   const mode = els.mode.value;
+
+  if (mode === 'terrain3d') {
+    if (!view3d && !view3dFailed) {
+      try {
+        view3d = createTerrainView3D(els.canvas3d);
+        if (view3d) {
+          view3d.setRamp(TERRAIN_STOPS);
+          view3d.setAutoRotate(els.spin.checked);
+        }
+      } catch (e) {
+        view3d = null;
+        console.error(e);
+      }
+      if (!view3d) {
+        view3dFailed = true;
+        setStatus('This browser has no WebGL2, so the 3D view is unavailable.', true);
+        els.mode.value = 'terrain';
+        syncViewChrome();
+        render();
+        return;
+      }
+    }
+    if (!view3d) return;
+
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const v = heights[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    const qs = quantileThresholds(heights, min, max, TERRAIN_STOPS.map((s) => s.q));
+    view3d.draw(heights, w, h, qs, min, CONTINENTAL_BASE, Number(els.exag.value));
+    return;
+  }
 
   if (mode === 'plates') {
     renderPlates(px, imap, sim.plateCount());
@@ -308,6 +386,7 @@ function createSimulation() {
   els.canvas.width = w;
   els.canvas.height = h;
   imageData = ctx.createImageData(w, h);
+  syncViewChrome();
 
   els.run.disabled = false;
   els.step.disabled = false;
@@ -337,7 +416,24 @@ els.run.addEventListener('click', () => {
 });
 els.step.addEventListener('click', () => doSteps(1));
 els.step10.addEventListener('click', () => doSteps(10));
-els.mode.addEventListener('change', render);
+els.mode.addEventListener('change', () => {
+  syncViewChrome();
+  render();
+});
+els.exag.addEventListener('input', () => {
+  if (view3d) view3d.setExaggeration(Number(els.exag.value));
+});
+els.spin.addEventListener('change', () => {
+  if (view3d) view3d.setAutoRotate(els.spin.checked);
+});
+els.palette.addEventListener('change', () => {
+  TERRAIN_STOPS = PALETTES[els.palette.value] ?? PALETTES.natural;
+  if (view3d) view3d.setRamp(TERRAIN_STOPS);
+  render();
+});
+window.addEventListener('resize', () => {
+  if (view3d && els.mode.value === 'terrain3d') view3d.resize();
+});
 els.overlay.addEventListener('change', render);
 els.arrows.addEventListener('change', render);
 

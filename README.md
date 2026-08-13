@@ -74,9 +74,24 @@ python3 -m http.server 8000 -d www
 The demo lets you configure every parameter of `platec_api_create` (seed,
 dimensions, sea level, plate count, erosion period, folding ratio, aggregation
 thresholds, cycles), generate a world, and then run / pause / single-step the
-simulation while watching it evolve. Four views are available — hypsometric
-terrain, grayscale height, plate ownership, and crust age — with optional plate-boundary
-outlines and per-plate velocity arrows.
+simulation while watching it evolve. Five views are available — hypsometric
+terrain, grayscale height, plate ownership, crust age, and a lit 3D terrain mesh
+— with optional plate-boundary outlines and per-plate velocity arrows on the 2D
+maps.
+
+The **3D view** (`www/view3d.js`) needs WebGL2 and falls back to the 2D terrain
+if it is missing. Drag to orbit, scroll to zoom, or leave it auto-rotating. The
+mesh is a static grid uploaded once; only the height texture changes per frame,
+and the vertex shader displaces the grid by sampling it, so nothing is
+recomputed on the CPU as the simulation runs. Two knobs matter:
+
+* **Relief** scales the vertical exaggeration. Terrain above the 90th percentile
+  is compressed logarithmically first — folding produces isolated cells many
+  times taller than the ridges around them, and left alone they render as
+  needles that dominate the silhouette.
+* **Colours** picks the hypsometric ramp, shared with the 2D terrain view.
+  *Natural* is desaturated enough that shading reads on top of it and adds a
+  snow line; *Hypsometric* is the demo's original high-saturation ramp.
 
 A 512×512 world steps in roughly 6 ms, so the simulation renders smoothly at one
 iteration per animation frame.
